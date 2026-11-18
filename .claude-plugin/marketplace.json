@@ -1,0 +1,15 @@
+{
+    "name": "flaneur",
+    "description": "flaneur: a stealth Chrome for AI agents",
+    "owner": {
+        "name": "Michał Kędrzyński"
+    },
+    "plugins": [
+        {
+            "name": "flaneur",
+            "source": "./plugin",
+            "description": "Browse real websites like a person: a stealth Chrome driven over CDP with agent-browser",
+            "category": "productivity"
+        }
+    ]
+}

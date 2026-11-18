@@ -1,0 +1,12 @@
+{
+    "name": "flaneur",
+    "description": "Browse the web like a person: the flaneur skill starts a stealth Chrome and drives it over CDP with agent-browser, at a human pace, without page scripts seeing the agent",
+    "version": "0.1.0",
+    "author": {
+        "name": "Michał Kędrzyński"
+    },
+    "homepage": "https://github.com/kedrzu/flaneur",
+    "repository": "https://github.com/kedrzu/flaneur",
+    "license": "MIT",
+    "keywords": ["browser", "stealth", "cdp", "chrome", "web", "agent-browser"]
+}

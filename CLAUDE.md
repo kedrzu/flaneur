@@ -1,0 +1,132 @@
+# Architecture
+
+flaneur is a stealth Chrome for AI agents over CDP: a library and a CLI that launch and drive a Chrome
+sites treat like a person browsing. It is published to npm as the unscoped `flaneur` package and runs
+on both Bun and Node.
+
+It is a Bun monorepo orchestrated by Nx, with packages under `packages/*`. The repo's tooling runs on
+Bun; the published package must also run on Node, so it uses no Bun-only API at runtime. The
+`@nzyme/*` framework is built from source from the `nzyme/` git submodule; the gitlink is the pin. How the repo is built and why: `ARCHITECTURE.md`. Read it before changing the layout,
+tooling or a package's role.
+
+- **Work inside `nzyme/`** follows `nzyme/CLAUDE.md`. A change there is a pull request to
+  `kedrzu/nzyme`; this repo then pins the merged commit.
+- **Code map:** `bun run index` (also run by setup) generates a gitignored map: the root `INDEX.md`
+  lists packages, each package's `INDEX.md` its services, commands, endpoints, components and utils,
+  and `UTILS.md` the `@util` helpers. Read these before grepping.
+- **Generated, never edit:** each package's `tsconfig.json` (`bun run monorepo`) and `*.loc.ts`
+  (`bun run localise`, from `.loc.yaml`).
+
+# Essential commands
+
+Run from the repo root:
+
+- `zsh setup.sh` — full setup; in a worktree it also catches up with `origin/main` and copies the
+  local files. `bash setup.build.sh` is the build half, shared with CI.
+- `bun run build` — `tsgo --build`; `bun run watch` rebuilds on change.
+- `bun run typecheck` — build, then each package's own typecheck.
+- `bun run tests` — the tests the current change can break (`nzyme git affected`); `bun run tests:full`
+  runs all of them, `bun test packages/<pkg>/src` one package. Not bare `bun test` for the whole
+  suite: it skips the script's flags.
+- `bun run lint` / `bun run lint:check` — oxlint (type-aware) plus ESLint for Vue, `package.json` and
+  Markdown, this repo's code only. `bun run lint:nzyme` checks the submodule with nzyme's own config.
+- `bun run format` / `bun run format:check` — oxfmt plus Markdown through ESLint (`format:md`). Never
+  hand-apply formatting.
+- `bun run reinstall` — clean reinstall after dependency trouble.
+
+## Keep command output out of context
+
+Verbose output (build, test, lint logs) is the biggest token cost; a long log gets re-read on every
+later turn. Wrap noisy commands in `bun nzyme quiet-run <command>`. It writes the full log to
+`.context/cmd-logs/` and prints one line on success, or the error lines plus a tail on failure, with
+the exit code passed through. Read a full log selectively (grep, a line range), never whole. Filter
+one-off dumps at the source too (`git show --stat`, `--jq`, a path).
+
+# Verification and the dev pipeline
+
+- The **`verify`** skill (`.claude/skills/verify/SKILL.md`) owns verification: whether a change needs
+  it, the scoped checks while iterating, and the full protocol before done.
+- The **`git-workflow`** skill (`.claude/skills/git-workflow/SKILL.md`) owns branches, commits, PRs
+  and landing.
+- Both are the contracts of the `dev` plugin (`/dev:fix`, `/dev:task`, `/dev:feature`, `/dev:build`,
+  `/dev:deliver`), installed from the `kedrzu-skills` marketplace in `.claude/settings.json`.
+- **Every implementation task loads the `code-conventions` skill with the Skill tool**, plus the skill
+  for its area. Each is the repo's own (`.claude/skills/<name>/SKILL.md`) and inlines nzyme's practice
+  document (`nzyme/docs/practice/<area>.md`) only when loaded, so load it, don't Read the file; a rule
+  that is wrong everywhere is fixed in nzyme.
+- **ADRs** go to `docs/decisions/<title-slug>.md`, never numbered.
+
+# TypeScript rules
+
+These always apply. Everything else — organization, naming, casting, JSDoc, design principles — is in
+the `code-conventions` skill.
+
+- Reaching for an ugly cast means something deeper is wrong: investigate, don't cast.
+- Use `assert()` from `@nzyme/utils` instead of a non-null assertion (`!`) in production code: `!` gives
+  no runtime check (it is fine in tests).
+- Never disable a lint rule to make an error go away; ask if stuck. A rule that is genuinely wrong for a
+  case is disabled in config, or with a comment saying why.
+
+# Git
+
+- **Commit style, branches and PRs** are the `git-workflow` skill's.
+- **Land every change you were asked to make:**
+  1. Run the scoped checks.
+  2. Commit and push through `git-workflow`. Never commit red, and never ask for permission to commit or
+     push: authorization to make the change is authorization to land it.
+  3. Before reporting done, confirm `git status --porcelain` is empty and `HEAD` equals `@{u}`.
+     This governs finishing a change; it never licenses making one.
+
+# Diagnosing failures — check, don't assume
+
+Get direct evidence before naming a cause. A plausible story about why something broke is worse than none:
+it sends you fixing the wrong thing, and every wrong fix costs another verify cycle.
+
+- **Read the real error first:** the failing assertion, the browser console, the first error line of the
+  log, the resource that is supposedly missing. A timeout or a dot-reporter run describes a symptom; the
+  underlying error usually names the problem. Use the tool that shows the actual state instead of
+  inferring it.
+- **When everything fails, look for one shared cause:** 35 of 35 e2e specs failing is one broken app
+  boot, not 35 broken tests. Diagnose it on one fast case, not by re-running the suite.
+- **Fix the whole class, not the instance:** once you know the mechanism, grep for every occurrence and
+  handle them together. Finding the second one with another full run is the expensive path.
+- **An implausibly fast green is not green:** a 0 s run, or a usage banner with exit 0, did not run
+  anything. Check the log before believing a pass.
+- **Say "I don't know yet".** State hypotheses as hypotheses, and when evidence kills one, say so plainly
+  rather than sliding to the next guess.
+
+# Writing style
+
+This applies to everything you write: plans, PR descriptions, issues, reviews, docs, chat replies.
+Templates say which sections to include; they never license length. Each rule has a check to run on your
+draft.
+
+- **Distill.** Check: every paragraph carries a fact, decision or instruction found nowhere else.
+- **No filler** ("It is important to note…", "In conclusion…"). Check: delete the phrase; if the rest
+  still reads, it was filler.
+- **Don't restate the request.** Check: if the opening can go without losing anything the reader doesn't
+  already know, cut it.
+- **Omit an inapplicable section rather than writing "N/A".** Check: no "N/A", "None" or "TBD" bodies.
+  The exception is a section whose emptiness is the information ("asked and closed"), and only where its
+  template says so.
+- **A table earns its syntax:** 3+ rows and 2+ varying columns. Check: a 2-row table is two bullets.
+- **Name only what the reader has seen.** A label from your own working context (`D41`, "variant B", a
+  term you coined) is noise to someone who was not inside it. Check: every ID or term is explained in the
+  same sentence, or is something the reader wrote.
+- **Match the user's register.** Check: if it reads like a press release and the user writes like an
+  engineer, rewrite it.
+- **Write in the reader's language.** Anything durable or read by agents (code, comments, docs, ADRs,
+  skills, PRs, issues) is English; a reply or plan only the user reads is in their language. Technical
+  terms stay English in both. Check: who opens this next?
+- **Hub files stay thin.** `CLAUDE.md` and a `SKILL.md` carry routing and rules; detail goes in the
+  reference they point at. Check: a paragraph not needed on every invocation belongs one level down.
+
+# Agent tool use
+
+- **Locate, then window:** grep or the index to find the range, then read it with offset/limit.
+- **Pick subagent tiers by the work;** the default inherits your model, which is too expensive for
+  fan-out:
+  - Haiku for mechanical search;
+  - Sonnet for multi-hop or semantic exploration;
+  - your own model for the reasoning.
+    Escalate on a thin result rather than defaulting up.

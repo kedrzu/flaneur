@@ -1,0 +1,64 @@
+{
+    "name": "flaneur",
+    "version": "0.1.0",
+    "description": "A stealth Chrome for AI agents over CDP: a real browser that never looks like a bot",
+    "keywords": [
+        "ai-agent",
+        "anti-detection",
+        "automation",
+        "browser",
+        "cdp",
+        "chrome",
+        "chrome-devtools-protocol",
+        "stealth"
+    ],
+    "homepage": "https://github.com/kedrzu/flaneur#readme",
+    "bugs": "https://github.com/kedrzu/flaneur/issues",
+    "license": "MIT",
+    "author": "Michał Kędrzyński <m.kedrzynski@gmail.com>",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/kedrzu/flaneur.git",
+        "directory": "packages/flaneur"
+    },
+    "bin": {
+        "flaneur": "bin/flaneur.js"
+    },
+    "files": [
+        "dist",
+        "bin"
+    ],
+    "type": "module",
+    "sideEffects": false,
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "source": "./src/index.ts",
+            "default": "./dist/index.js"
+        }
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "build": "tsgo --build tsconfig.esm.json"
+    },
+    "dependencies": {
+        "@nzyme/ioc": "workspace:*",
+        "@nzyme/logging": "workspace:*",
+        "@nzyme/utils": "workspace:*",
+        "ws": "^8.18.0"
+    },
+    "devDependencies": {
+        "@nzyme/tsconfig": "workspace:*",
+        "@types/node": "26.6.6",
+        "@types/ws": "^8.18.1",
+        "@typescript/native-preview": "^7.0.0-dev.20260707.2",
+        "playwright": "^1.64.1"
+    },
+    "engines": {
+        "node": ">=22"
+    }
+}
