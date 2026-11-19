@@ -2,6 +2,8 @@
 export interface BuildStealthArgsOptions {
     /** The profile folder: cookies and logins. */
     userDataDir: string;
+    /** The proxy server every request goes through: `http://<host>:<port>`. */
+    proxyServer?: string;
     /** Appended last, e.g. `--headless=new`. */
     args?: string[];
 }
@@ -15,7 +17,8 @@ export interface BuildStealthArgsOptions {
  * Keychain. `--disable-backgrounding-occluded-windows`: a window covered by other windows otherwise turns its page
  * hidden and stops its rendering, and a document that loads while hidden draws no frame, so a click on it after a
  * navigation waited 5 s for the browser's input timeout and was then lost (macOS, agent-browser on the test shop). A
- * page cannot tell a covered window from a visible one, so it reads nothing unusual.
+ * page cannot tell a covered window from a visible one, so it reads nothing unusual. Behind a proxy, WebRTC may not
+ * send UDP past it: its STUN requests would tell any page the real address.
  * @__NO_SIDE_EFFECTS__
  */
 export function buildStealthArgs(options: BuildStealthArgsOptions) {
@@ -27,6 +30,9 @@ export function buildStealthArgs(options: BuildStealthArgsOptions) {
         '--no-first-run',
         '--no-default-browser-check',
         ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
+        ...(options.proxyServer == null
+            ? []
+            : [`--proxy-server=${options.proxyServer}`, '--force-webrtc-ip-handling-policy=disable_non_proxied_udp']),
         ...(options.args ?? []),
     ];
 }
