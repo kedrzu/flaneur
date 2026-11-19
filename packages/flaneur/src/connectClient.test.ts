@@ -166,13 +166,30 @@ test('a page created with a URL is created blank and navigated by the proxy befo
 
     expect(reply['result']).toEqual({ targetId: 't-new' });
     expect(browser.sent).toEqual([
-        { method: 'Target.createTarget', params: { url: 'about:blank', newWindow: true } },
+        { method: 'Target.createTarget', params: { url: 'about:blank', newWindow: true, background: true } },
         { method: 'Target.attachToTarget', params: { targetId: 't-new', flatten: true } },
         { method: 'Page.navigate', params: { url: 'https://example.com/' }, sessionId: 's-new' },
         { method: 'Target.detachFromTarget', params: { sessionId: 's-new' } },
     ]);
     expect(registry.getTargetGroup('t-new')).toBe('group-a');
     expect(registry.getSessionOriginator('s-new')).toEqual({ type: 'proxy' });
+});
+
+test('pages open in background windows of their own, and activating one never reaches the browser', async () => {
+    const { browser, client } = prepare({});
+
+    await client.call('Target.createTarget', { url: 'about:blank', newWindow: false, background: false, width: 800 });
+    const activated = await client.call('Target.activateTarget', { targetId: 't-a' });
+    const broughtToFront = await client.call('Page.bringToFront', {}, 's-a');
+
+    expect(browser.sent).toEqual([
+        {
+            method: 'Target.createTarget',
+            params: { url: 'about:blank', newWindow: true, background: true, width: 800 },
+        },
+    ]);
+    expect(activated['result']).toEqual({});
+    expect(broughtToFront['result']).toEqual({});
 });
 
 test('without a pace, loads of one site go to the browser one right after another', async () => {
