@@ -99,6 +99,13 @@
                 "repo": "kedrzu/skills"
             },
             "autoUpdate": true
+        },
+        "nzyme": {
+            "source": {
+                "source": "github",
+                "repo": "kedrzu/nzyme"
+            },
+            "autoUpdate": true
         }
     },
     "enabledPlugins": {
@@ -111,6 +118,7 @@
         "guardrails@kedrzu-skills": true,
         "handoff@kedrzu-skills": true,
         "retro@kedrzu-skills": true,
-        "claude-md-management@claude-plugins-official": true
+        "claude-md-management@claude-plugins-official": true,
+        "nzyme@nzyme": true
     }
 }
