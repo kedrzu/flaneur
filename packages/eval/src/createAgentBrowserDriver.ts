@@ -35,13 +35,13 @@ export function createAgentBrowserDriver(params: CreateAgentBrowserDriverParams)
 
     return {
         open: url => run('open', url).then(() => undefined),
-        click: selector => run('click', selector).then(() => undefined),
-        type: (selector, text) => run('fill', selector, text).then(() => undefined),
+        click: selector => runOn(selector, 'click', selector),
+        type: (selector, text) => runOn(selector, 'fill', selector, text),
         press: key => run('press', key).then(() => undefined),
-        select: (selector, value) => run('select', selector, value).then(() => undefined),
+        select: (selector, value) => runOn(selector, 'select', selector, value),
         pickDate,
         scrollBy: px => run('scroll', 'down', String(px)).then(() => undefined),
-        scrollTo: selector => run('scrollintoview', selector).then(() => undefined),
+        scrollTo: selector => runOn(selector, 'scrollintoview', selector),
         evaluate,
         cookieNames,
         browserVersion: () => stack.browserVersion(),
@@ -60,7 +60,7 @@ export function createAgentBrowserDriver(params: CreateAgentBrowserDriverParams)
         if (!Array.isArray(order)) {
             throw new TypeError('The date part order is not a list');
         }
-        await run('focus', selector);
+        await runOn(selector, 'focus', selector);
         for (const part of order) {
             const digits = part === 'day' ? day : part === 'month' ? month : year;
             for (const digit of digits) {
@@ -92,6 +92,15 @@ export function createAgentBrowserDriver(params: CreateAgentBrowserDriverParams)
             throw new Error(`agent-browser eval failed: ${output.trim()}`);
         }
         return data['result'];
+    }
+
+    /**
+     * Runs a command on an element once it is there: agent-browser fails at once on a missing one, and the shop
+     * navigates only after its reCAPTCHA token arrives, up to 1.5 s after the action that leads to the page.
+     */
+    async function runOn(selector: string, ...args: string[]) {
+        await run('wait', selector);
+        await run(...args);
     }
 
     /** Runs one agent-browser command; resolves with its stdout, rejects with its stderr when it fails. */
