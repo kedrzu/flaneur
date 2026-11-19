@@ -1,0 +1,44 @@
+name: Pages
+
+# Deploys the eval's test shop (`packages/eval/shop`) to GitHub Pages at https://kedrzu.github.io/flaneur/shop/.
+# The reCAPTCHA keys the shop uses accept only the `kedrzu.github.io` domain, so it must be served from there.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - packages/eval/shop/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy the test shop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}shop/
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/shop
+          cp packages/eval/shop/*.html packages/eval/shop/*.js packages/eval/shop/*.css _site/shop/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

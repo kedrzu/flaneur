@@ -29,7 +29,8 @@
         "index": "nzyme index",
         "clean": "del \"**/dist\" \"**/.nx\" \"**/.nzyme\" \"**/*.tsbuildinfo\" \"!**/node_modules/**\"",
         "clean:npm": "del \"**/node_modules\"",
-        "reinstall": "bun run clean && bun run clean:npm && bun install"
+        "reinstall": "bun run clean && bun run clean:npm && bun install",
+        "eval": "bun run --cwd packages/eval eval"
     },
     "devDependencies": {
         "@nzyme/cli": "workspace:*",

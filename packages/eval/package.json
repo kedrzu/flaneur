@@ -1,0 +1,23 @@
+{
+    "name": "@flaneur/eval",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Measures how detectable flaneur is: a reCAPTCHA-scored test shop visit, fingerprint leak pages, a panel of protected sites, against a headless control and a person",
+    "license": "MIT",
+    "type": "module",
+    "scripts": {
+        "build": "tsgo --build tsconfig.esm.json",
+        "eval": "bun src/stealthEval.ts"
+    },
+    "dependencies": {
+        "@nzyme/logging": "workspace:*",
+        "@nzyme/utils": "workspace:*",
+        "flaneur": "workspace:*",
+        "playwright": "^1.64.1"
+    },
+    "devDependencies": {
+        "@nzyme/tsconfig": "workspace:*",
+        "@types/node": "26.6.6",
+        "@typescript/native-preview": "^7.0.0-dev.20260707.2"
+    }
+}
