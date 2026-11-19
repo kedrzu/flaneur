@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    />
+    <title>Beanwright | Coffee and tea gear</title>
+    <link
+      rel="stylesheet"
+      href="shop.css"
+    />
+    <script src="https://www.google.com/recaptcha/enterprise.js?render=6LeHciEuAAAAAJSL9I_rLsgkmxdwe5IL27QfR_dv"></script>
+  </head>
+  <body data-page="list">
+    <header
+      class="site-header"
+      id="site-header"
+    ></header>
+    <main
+      id="page-main"
+      class="container"
+    >
+      <h1
+        class="page-title"
+        id="list-title"
+      >
+        All coffee gear
+      </h1>
+      <p
+        class="results-count"
+        id="results-count"
+        role="status"
+      ></p>
+      <div class="layout">
+        <aside>
+          <form
+            class="filters"
+            id="filter-form"
+            aria-label="Filters"
+            action="index.html"
+          >
+            <fieldset>
+              <legend>Category</legend>
+              <label class="check"
+                ><input
+                  type="checkbox"
+                  name="cat"
+                  value="grinders"
+                  data-test="filter-cat-grinders"
+                />
+                Coffee grinders</label
+              >
+              <label class="check"
+                ><input
+                  type="checkbox"
+                  name="cat"
+                  value="kettles"
+                  data-test="filter-cat-kettles"
+                />
+                Kettles</label
+              >
+              <label class="check"
+                ><input
+                  type="checkbox"
+                  name="cat"
+                  value="scales"
+                  data-test="filter-cat-scales"
+                />
+                Scales</label
+              >
+              <label class="check"
+                ><input
+                  type="checkbox"
+                  name="cat"
+                  value="filters"
+                  data-test="filter-cat-filters"
+                />
+                Filters</label
+              >
+              <label class="check"
+                ><input
+                  type="checkbox"
+                  name="cat"
+                  value="accessories"
+                  data-test="filter-cat-accessories"
+                />
+                Accessories</label
+              >
+            </fieldset>
+            <p>
+              <label
+                class="field-label"
+                for="filter-brand"
+                >Brand</label
+              >
+              <select
+                id="filter-brand"
+                name="brand"
+              >
+                <option value="">All brands</option>
+              </select>
+            </p>
+            <fieldset>
+              <legend>Price</legend>
+              <div class="price-row">
+                <input
+                  type="number"
+                  id="filter-min"
+                  name="min"
+                  min="0"
+                  placeholder="Min"
+                  aria-label="Minimum price"
+                />
+                <input
+                  type="number"
+                  id="filter-max"
+                  name="max"
+                  min="0"
+                  placeholder="Max"
+                  aria-label="Maximum price"
+                />
+              </div>
+            </fieldset>
+            <p>
+              <label class="check"
+                ><input
+                  type="checkbox"
+                  id="filter-stock"
+                  name="stock"
+                  value="1"
+                />
+                In stock only</label
+              >
+            </p>
+            <div class="filters__actions">
+              <button
+                type="submit"
+                class="btn"
+                id="filters-apply"
+              >
+                Apply
+              </button>
+              <a
+                href="index.html"
+                id="filters-clear"
+                data-nav-action="filter"
+                >Clear</a
+              >
+            </div>
+          </form>
+        </aside>
+        <section aria-label="Products">
+          <div class="toolbar">
+            <label for="sort-select">Sort by</label>
+            <select id="sort-select">
+              <option value="relevance">Featured</option>
+              <option value="price-asc">Price, low to high</option>
+              <option value="price-desc">Price, high to low</option>
+              <option value="rating">Rating</option>
+              <option value="name">Name</option>
+            </select>
+          </div>
+          <div
+            class="grid"
+            id="product-grid"
+          ></div>
+          <nav
+            class="pagination"
+            id="pagination"
+            aria-label="Pagination"
+          ></nav>
+        </section>
+      </div>
+    </main>
+    <footer
+      class="site-footer"
+      id="site-footer"
+    ></footer>
+    <script src="products.js"></script>
+    <script src="shop.js"></script>
+  </body>
+</html>
