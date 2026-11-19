@@ -72,6 +72,15 @@ up with Chrome stable is a one-line pin bump (`PINNED_VERSION` in
 to date, with the pinned Chrome for Testing one flag away for a host that ships the browser
 ([package API](../../decisions/package-api.md)). The launch flag and the stealth layers apply to both.
 
+A second flag, `--disable-backgrounding-occluded-windows`, keeps a page drawn while other windows cover the browser's.
+Without it a page loaded behind them never paints, and the next click waits out Chrome's 5 s input timeout and is
+lost. The price is that a covered page still reports `visibilityState` `visible`, as under Playwright and Puppeteer,
+which launch with the same flag.
+
+> **Checked 2026-11-19:** on macOS, a page loaded while its window was covered stayed `hidden`; the click after it
+> reached the page as a `pointermove` without a `pointerdown`, with or without the pace. With the flag the page stayed
+> `visible` and 10 of 10 runs, and 8 of 8 with four windows covering each other, delivered the click.
+
 **Rejected.**
 
 - CloakBrowser — closed-source binary, licence key per launch, "no redistribution (OEM/SaaS license required to serve
