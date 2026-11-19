@@ -52,6 +52,11 @@ const SERVER_ERROR = -32_000;
 /** A CDP error code for a message that is not JSON. */
 const PARSE_ERROR = -32_700;
 
+/**
+ * How a client's page is created: Chrome activates itself for a page in the foreground, which on macOS also switches
+ * to the desktop its window is on.
+ */
+const BACKGROUND_PAGE = { newWindow: true, background: true };
 /** The target lifecycle events a client gets for the targets it sees once it discovers targets. */
 const TARGET_EVENTS = new Set([
     'Target.targetCreated',
@@ -295,6 +300,10 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
                 return createTarget(forwardParams);
             case 'Target.attachToTarget':
                 return attachToTarget(forwardParams);
+            case 'Page.bringToFront':
+            case 'Target.activateTarget':
+                // Each page has a window of its own, visible without it; activating one would bring Chrome to the front.
+                return {};
             default:
                 return send(method, forwardParams, sessionId);
         }
@@ -333,7 +342,9 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
     /**
      * Creates a page. One with a URL is created blank and then navigated by the proxy, before the reply: with the URL
      * in `Target.createTarget`, the first navigation can commit before the brand reaches the page, whose first script
-     * then read the browser's own name in 2 runs of 6.
+     * then read the browser's own name in 2 runs of 6. Every page opens in a window of its own, in the background
+     * (`BACKGROUND_PAGE`): the person at the computer keeps working, and the page stays visible to its scripts, which a
+     * background tab of a shared window would not be.
      */
     async function createTarget(createParams: Record<string, unknown>) {
         const { url } = createParams;
@@ -341,10 +352,11 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
         creating++;
         let reply: unknown;
         try {
-            reply = await send(
-                'Target.createTarget',
-                opensUrl ? { ...createParams, url: 'about:blank' } : createParams,
-            );
+            reply = await send('Target.createTarget', {
+                ...createParams,
+                ...(opensUrl ? { url: 'about:blank' } : {}),
+                ...BACKGROUND_PAGE,
+            });
         } finally {
             creating--;
         }

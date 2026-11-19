@@ -18,7 +18,9 @@ export interface BuildStealthArgsOptions {
  * hidden and stops its rendering, and a document that loads while hidden draws no frame, so a click on it after a
  * navigation waited 5 s for the browser's input timeout and was then lost (macOS, agent-browser on the test shop). A
  * page cannot tell a covered window from a visible one, so it reads nothing unusual. Behind a proxy, WebRTC may not
- * send UDP past it: its STUN requests would tell any page the real address.
+ * send UDP past it: its STUN requests would tell any page the real address. `--no-startup-window`: Chrome activates
+ * itself for the window it opens at launch, which on macOS also switches to its desktop; a client's pages open in
+ * background windows of their own (`connectClient`).
  * @__NO_SIDE_EFFECTS__
  */
 export function buildStealthArgs(options: BuildStealthArgsOptions) {
@@ -29,6 +31,7 @@ export function buildStealthArgs(options: BuildStealthArgsOptions) {
         '--disable-backgrounding-occluded-windows',
         '--no-first-run',
         '--no-default-browser-check',
+        '--no-startup-window',
         ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
         ...(options.proxyServer == null
             ? []
