@@ -168,6 +168,22 @@ fi
 
 bash setup.build.sh
 
+# --- Claude Code plugins ---
+#
+# Claude Code records a project-scope plugin install against the checkout's path, so every clone and
+# worktree needs its own install of the plugins `.claude/settings.json` enables; nzyme's shared script
+# does it. It exists from the nzyme release after 0.16.0, which this setup moves the pin to.
+if [ "$CI" != "true" ]; then
+    echo ""
+    echo "🧩 Setting up the project's Claude Code plugins..."
+    echo ""
+    if [ -f nzyme/scripts/claude-plugins.sh ]; then
+        bash nzyme/scripts/claude-plugins.sh || warn "Some Claude Code plugins were not set up: see the lines above."
+    else
+        warn "The nzyme pin has no scripts/claude-plugins.sh yet: the project's Claude Code plugins were not set up."
+    fi
+fi
+
 # --- Code index (agent navigation) ---
 #
 # Not part of setup.build.sh: CI has no agent to read it. Non-fatal — an indexing failure must never
