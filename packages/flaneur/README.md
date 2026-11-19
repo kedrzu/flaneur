@@ -66,8 +66,24 @@ FLANEUR_VPN_USER=… FLANEUR_VPN_PASSWORD=… npx flaneur --vpn "US Texas" --vpn
 - **The first start is slow:** the image is pulled once and the provider's server list is refreshed daily into a Docker
   volume. A tunnel that does not connect in 90 s fails the start with OpenVPN's last messages.
 - **Cleanup:** the container goes when the CLI exits; one left by a killed CLI goes on the next VPN start.
-- WebRTC may not send UDP past the proxy, so its STUN requests cannot reveal the real address. The browser's timezone
-  and language stay the computer's, as they would for a person on a VPN.
+- **No Docker, no browser.** When Docker is not installed or not running, or the tunnel does not come up, the CLI exits
+  with an error before Chrome starts. It never falls back to browsing without the VPN.
+
+How it works:
+
+1. The CLI starts gluetun with the VPN login and gluetun's HTTP proxy on, published on a random port of `127.0.0.1`.
+   The proxy wants a login made up for this run, so no other local program can use the tunnel.
+2. It waits until gluetun's healthcheck passes and gluetun knows the tunnel's public address, which it asks for on
+   gluetun's control server, behind a random key of its own.
+3. Chrome starts with `--proxy-server` pointing at the tunnel. Chrome takes no proxy login on its command line, so
+   flaneur answers the proxy's challenges over CDP (`Fetch` on the browser target): each request pauses there for a
+   moment and goes on. Pages see nothing of it, clients get none of its events, and a client's own `Fetch` on a page
+   works as before.
+4. WebRTC may not send UDP past the proxy, so its STUN requests cannot reveal the real address. The browser's timezone
+   and language stay the computer's, as they would for a person on a VPN.
+
+The region holds for the CLI's lifetime, as Chrome cannot change its proxy while it runs: another region is another
+start. Why the login goes over CDP: [`docs/decisions/vpn-tunnels.md`](../../docs/decisions/vpn-tunnels.md).
 
 ### With agent-browser
 
@@ -84,7 +100,7 @@ every call. Any other client that takes a CDP WebSocket URL works the same way.
 import { createSitePace, launchStealthBrowser, serveStealthBrowser, startVpnTunnel } from 'flaneur';
 ```
 
-- `launchStealthBrowser({ executablePath, userDataDir, args?, policy?, pace?, logger? })` launches Chrome over
+- `launchStealthBrowser({ executablePath, userDataDir, args?, proxy?, policy?, pace?, logger? })` launches Chrome over
   `--remote-debugging-pipe` and resolves once every new target is branded. `browser.connect(socket, { group, data })`
   adds a client on any socket-like object (`send`, `close`); the caller feeds it the socket's messages. A client with a
   `group` sees only that group's pages, and pages it creates join the group. `browser.send` and `browser.attach` are

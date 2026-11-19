@@ -9,7 +9,7 @@ import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
 import { waitFor } from '@nzyme/utils/waitFor.js';
 
 import { readGluetunError } from './readGluetunError.js';
-import { DockerTimeoutError, runDocker } from './runDocker.js';
+import { DockerTimeoutError, DockerUnavailableError, runDocker } from './runDocker.js';
 import type { DockerOutput, RunDockerParams } from './runDocker.js';
 import type { StealthBrowserProxy } from './StealthBrowserProxy.js';
 
@@ -256,7 +256,7 @@ export async function startVpnTunnel(options: StartVpnTunnelOptions): Promise<Vp
         return redacted;
     }
 
-    /** Removes the containers of processes that are gone; best effort, as it only tidies up. */
+    /** Removes the containers of processes that are gone; best effort, as it only tidies up, unless Docker is missing. */
     async function removeOrphans() {
         try {
             const output = await docker({
@@ -281,6 +281,10 @@ export async function startVpnTunnel(options: StartVpnTunnelOptions): Promise<Vp
                 logger.info('Removed VPN containers left behind', { count: orphans.length });
             }
         } catch (error) {
+            // Without Docker the start cannot go on: that is its error to report, once.
+            if (error instanceof DockerUnavailableError) {
+                throw error;
+            }
             logger.warn('Looking for VPN containers left behind failed', { error });
         }
     }

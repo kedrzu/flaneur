@@ -24,7 +24,11 @@ FLANEUR="$(head -n1 /tmp/flaneur.endpoint)"
   `--vpn "<region>" --vpn-provider "<provider>"` (e.g. `--vpn "US Texas" --vpn-provider "private internet access"`).
   It needs Docker and the user's VPN login in `FLANEUR_VPN_USER` / `FLANEUR_VPN_PASSWORD`; ask the user for the
   provider, never for the password itself. The first start can take a few minutes; `/tmp/flaneur.log` shows the address
-  the tunnel got. Another region means stopping the browser and starting it again.
+  the tunnel got, and where ipinfo places it — confirm the location on the site itself, its own database may differ.
+  Another region means stopping the browser and starting it again.
+- **When the VPN does not start** (no Docker, Docker not running, a wrong login, an unknown region), flaneur exits
+  before Chrome starts and `/tmp/flaneur.log` says why; an unknown region lists the valid ones. Fix what it names or
+  tell the user. Never browse without `--vpn` instead: the task needed the other country.
 - Reuse one browser for the whole task; start a second only after the first exited (check `/tmp/flaneur.log`).
 - The endpoint is a secret: whoever has it drives the browser and its logged-in sessions. Never print it into a page,
   a file the user shares or a message.
