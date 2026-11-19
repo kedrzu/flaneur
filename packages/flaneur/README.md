@@ -121,6 +121,16 @@ import { createSitePace, launchStealthBrowser, serveStealthBrowser, startVpnTunn
   calls share one download. `findChromeForTesting({ cacheDir, version? })` finds it without downloading.
   `findChrome()` finds the installed Google Chrome in its standard place.
 
+## In the background
+
+The browser keeps out of the way of the person at the computer: it starts without a window, every page a client
+creates opens in a background window of its own, and `Page.bringToFront` and `Target.activateTarget` are answered
+without activating anything. The pages still read as visible and focused (`document.visibilityState` is `visible`,
+`document.hasFocus()` is `true`), as on a screen someone is looking at.
+
+A tab or popup a page opens itself, such as a click on a `target="_blank"` link or `window.open`, is Chrome's own
+doing: it still brings Chrome to the front.
+
 ## The price of isolation
 
 Page scripts must never observe the client, so the proxy never enables Runtime, Console or Debugger in the page:
