@@ -10,6 +10,16 @@ it does: [`docs/decisions/package-api.md`](../../docs/decisions/package-api.md).
 
 Runs on Node.js 22+ and Bun.
 
+## Install
+
+```bash
+npm install flaneur   # Node.js
+bun add flaneur       # Bun
+```
+
+Or run the CLI without installing: `npx flaneur` on Node, `bunx --bun flaneur` on Bun. Without `--bun`, `bunx`
+honours the CLI's `node` shebang and runs it on Node when Node is installed.
+
 ## CLI
 
 ```bash

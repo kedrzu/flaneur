@@ -11,7 +11,8 @@ Runs on Node.js 22+ and Bun.
 ## Quick start
 
 ```bash
-npx flaneur
+npx flaneur            # Node.js
+bunx --bun flaneur     # Bun
 # ws://127.0.0.1:53817/7c9e…   ← the CDP endpoint, the only line on stdout
 ```
 
