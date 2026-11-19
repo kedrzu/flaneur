@@ -36,7 +36,9 @@ package and is not published to npm; Claude Code installs it from GitHub. Its `v
   (`tests:full` for every test). CI runs all four, with `tests:full`, on every pull request
   (`.github/workflows/build.yml`, required check `Build`).
 - **Release:** pushing a `v*` tag runs `.github/workflows/release.yml`: build, typecheck, tests, then
-  `bun pm pack` (which rewrites `workspace:*` to real versions) and `npm publish --provenance` of that
+  `bun pm pack` (which rewrites `workspace:*` to real versions),
+  `scripts/checkPackedRelease.sh` (the pinned `@nzyme/*` source equals each package's nzyme release tag, and the
+  tarball installs from npm and loads on Node) and `npm publish --provenance` of that
   tarball through npm trusted publishing (OIDC). A manual dispatch publishes the version in
   `packages/flaneur/package.json`.
 - **Git:** one branch and one pull request per change, squash-merged to `main`, Conventional Commits
