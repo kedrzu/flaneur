@@ -21,6 +21,9 @@ package.
 
 - **`flaneur`** — `packages/flaneur`: the library (launch, proxy, CDP session) and the CLI, published to
   npm. It must not depend on a private workspace package, since npm users could not install it.
+- **`@flaneur/eval`** — `packages/eval`, private: measures how detectable flaneur is against a headless control and a
+  person (`bun run eval`). Its test shop, `packages/eval/shop`, is static HTML deployed to GitHub Pages by
+  `.github/workflows/pages.yml`; it is linted by nothing, since it is untyped browser JS outside the build.
 
 Any later internal package is private and named `@flaneur/<package>` in `packages/<package>`.
 
