@@ -39,11 +39,13 @@ package and is not published to npm; Claude Code installs it from GitHub. Its `v
   (`tests:full` for every test). CI runs all four, with `tests:full`, on every pull request
   (`.github/workflows/build.yml`, required check `Build`).
 - **Release:** pushing a `v*` tag runs `.github/workflows/release.yml`: build, typecheck, tests, then
-  `bun pm pack` (which rewrites `workspace:*` to real versions),
-  `scripts/checkPackedRelease.sh` (the pinned `@nzyme/*` source equals each package's nzyme release tag, and the
-  tarball installs from npm and loads on Node) and `npm publish --provenance` of that
-  tarball through npm trusted publishing (OIDC). A manual dispatch publishes the version in
-  `packages/flaneur/package.json`.
+  `scripts/packRelease.sh` (`bun pm pack`, which rewrites `workspace:*` to real versions, and
+  `scripts/checkPackedRelease.sh`: the pinned `@nzyme/*` source equals each package's nzyme release tag, and the
+  tarball installs from npm and loads on Node) and `npm publish --provenance` of that tarball through npm trusted
+  publishing (OIDC); a version already on npm is skipped. A manual dispatch publishes the version in
+  `packages/flaneur/package.json`. npm accepts a trusted publisher only for an existing package, so the first version
+  is published from the maintainer's machine by `scripts/bootstrapNpm.sh`, which then sets the trusted publisher and
+  pushes the tag.
 - **Git:** one branch and one pull request per change, squash-merged to `main`, Conventional Commits
   (`.claude/skills/git-workflow/SKILL.md`). The nzyme pin moves with every task: `setup.sh` moves it in each worktree
   to the latest nzyme release, and the task's PR carries the bump. `.github/workflows/verify-submodules.yml`

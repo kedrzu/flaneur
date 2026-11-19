@@ -2,13 +2,14 @@
 # names; a manual dispatch publishes the version in packages/flaneur/package.json at the chosen ref.
 #
 # Authentication is npm trusted publishing (OIDC, `id-token: write`) with provenance: no token is
-# stored. Trusted publishing is configured on npmjs.com for an existing package only, so the very
-# first publish needs a one-off `NPM_TOKEN` secret; once the trusted publisher is set, delete it.
+# stored. npm accepts a trusted publisher for an existing package only, so the first version was
+# published from the maintainer's machine by scripts/bootstrapNpm.sh, which also set the publisher.
+# A version already on npm is not published again: the run still builds and tests it.
 #
 # The package depends on `@nzyme/*` as `workspace:*`. `bun pm pack` rewrites those to the exact
 # versions of the pinned nzyme packages, which must therefore be on npm already, with the same source
-# as the pin (scripts/checkPackedRelease.sh checks both); `npm publish` then uploads that tarball,
-# since bun cannot publish through OIDC.
+# as the pin (scripts/packRelease.sh checks both through scripts/checkPackedRelease.sh); `npm publish`
+# then uploads that tarball, since bun cannot publish through OIDC.
 
 name: Release
 
@@ -34,6 +35,10 @@ jobs:
       id-token: write
     env:
       CI: 'true'
+    # An explicit `bash` runs with `-o pipefail`: a failing `scripts/packRelease.sh | tail -1` fails the step.
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -70,30 +75,23 @@ jobs:
       - name: Tests
         run: bun run tests:full
 
+      # Also checks the tarball against npm: the tests ran on the pinned nzyme source, users install
+      # `@nzyme/*` from npm, and the release stops when the two differ or a version is not on npm.
       - name: Pack
         id: pack
-        working-directory: packages/flaneur
         run: |
-          tarball=$(bun pm pack --quiet --destination "$RUNNER_TEMP" | tail -1)
-          tarball="$RUNNER_TEMP/$(basename "$tarball")"
-          if tar -xOzf "$tarball" package/package.json | grep -q '"workspace:'; then
-            echo "::error::The packed package.json still has a workspace: dependency."
-            exit 1
-          fi
+          tarball=$(bash scripts/packRelease.sh "$RUNNER_TEMP" | tail -1)
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
 
-      # The tests ran on the pinned nzyme source; users install `@nzyme/*` from npm. Stops the release
-      # when the two differ or a version is not on npm.
-      - name: Check the package against npm
-        run: bash scripts/checkPackedRelease.sh "${{ steps.pack.outputs.tarball }}"
-
-      # Only for the first publish, before the trusted publisher exists. Without the secret, npm
-      # authenticates through OIDC.
-      - name: Configure npm token
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        if: env.NPM_TOKEN != ''
-        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
+      - name: Check whether the version is on npm
+        id: published
+        run: |
+          version=$(jq -r .version packages/flaneur/package.json)
+          if [ -n "$(npm view "flaneur@$version" version 2> /dev/null)" ]; then
+            echo "::notice::flaneur@$version is on npm already: not publishing it again."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Publish to npm
+        if: steps.published.outputs.skip != 'true'
         run: npm publish "${{ steps.pack.outputs.tarball }}" --provenance --access public
