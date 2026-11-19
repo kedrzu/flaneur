@@ -20,6 +20,11 @@ FLANEUR="$(head -n1 /tmp/flaneur.endpoint)"
 
 - It uses the installed Google Chrome. Without one, add `--chrome-for-testing`: it downloads a pinned, checksummed
   Chrome for Testing once.
+- **Another country:** when the task needs the site as seen from elsewhere, add
+  `--vpn "<region>" --vpn-provider "<provider>"` (e.g. `--vpn "US Texas" --vpn-provider "private internet access"`).
+  It needs Docker and the user's VPN login in `FLANEUR_VPN_USER` / `FLANEUR_VPN_PASSWORD`; ask the user for the
+  provider, never for the password itself. The first start can take a few minutes; `/tmp/flaneur.log` shows the address
+  the tunnel got. Another region means stopping the browser and starting it again.
 - Reuse one browser for the whole task; start a second only after the first exited (check `/tmp/flaneur.log`).
 - The endpoint is a secret: whoever has it drives the browser and its logged-in sessions. Never print it into a page,
   a file the user shares or a message.

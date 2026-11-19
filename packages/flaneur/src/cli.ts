@@ -11,9 +11,12 @@ import { createSitePace } from './createSitePace.js';
 import { findChrome } from './findChrome.js';
 import { installChromeForTesting } from './installChromeForTesting.js';
 import { serveStealthBrowser } from './serveStealthBrowser.js';
+import type { StealthBrowserServer } from './serveStealthBrowser.js';
+import { startVpnTunnel } from './startVpnTunnel.js';
 
 const USAGE = `Usage: flaneur [--chrome <path> | --chrome-for-testing [--chrome-version <v>]]
-                       [--user-data-dir <dir>] [--port <n>] [--no-pace] [-- <chrome args>]
+                       [--user-data-dir <dir>] [--port <n>] [--no-pace]
+                       [--vpn <region> --vpn-provider <name>] [-- <chrome args>]
 
 Launches a stealth Chrome and prints its CDP endpoint (ws://127.0.0.1:<port>/<token>) as the only line on stdout.
 
@@ -23,6 +26,9 @@ Launches a stealth Chrome and prints its CDP endpoint (ws://127.0.0.1:<port>/<to
   --user-data-dir <dir>     the browser profile; a persistent one in this computer's app data by default
   --port <n>                the local port; any free one by default
   --no-pace                 do not hold sites to a human pace
+  --vpn <region>            browse through a VPN server region, e.g. "US Texas"; needs Docker and the login in
+                            FLANEUR_VPN_USER and FLANEUR_VPN_PASSWORD
+  --vpn-provider <name>     the VPN provider, as gluetun names it, e.g. "private internet access"
   -- <chrome args>          passed to Chrome as they are`;
 
 /** The folder this CLI keeps its profile and Chrome for Testing in. */
@@ -51,6 +57,8 @@ async function run() {
             'user-data-dir': { type: 'string' },
             port: { type: 'string' },
             'no-pace': { type: 'boolean' },
+            vpn: { type: 'string' },
+            'vpn-provider': { type: 'string' },
             help: { type: 'boolean', short: 'h' },
         },
     });
@@ -65,20 +73,41 @@ async function run() {
         throw new Error('--chrome-version needs --chrome-for-testing');
     }
 
+    if ((values.vpn == null) !== (values['vpn-provider'] == null)) {
+        throw new Error('--vpn and --vpn-provider go together');
+    }
+
     const dataDir = getDataDir();
-    const server = await serveStealthBrowser({
-        executablePath: await resolveChrome({
-            chrome: values.chrome,
-            chromeForTesting: values['chrome-for-testing'] === true,
-            version: values['chrome-version'],
-            dataDir,
-        }),
-        userDataDir: values['user-data-dir'] ?? path.join(dataDir, 'profile'),
-        args: chromeArgs,
-        port: values.port == null ? undefined : parsePort(values.port),
-        pace: values['no-pace'] ? undefined : createSitePace(),
-        logger,
+    const executablePath = await resolveChrome({
+        chrome: values.chrome,
+        chromeForTesting: values['chrome-for-testing'] === true,
+        version: values['chrome-version'],
+        dataDir,
     });
+    const tunnel =
+        values.vpn == null || values['vpn-provider'] == null
+            ? null
+            : await startVpnTunnel({
+                  provider: values['vpn-provider'],
+                  region: values.vpn,
+                  credentials: readVpnCredentials(),
+                  logger,
+              });
+    let server: StealthBrowserServer;
+    try {
+        server = await serveStealthBrowser({
+            executablePath,
+            userDataDir: values['user-data-dir'] ?? path.join(dataDir, 'profile'),
+            args: chromeArgs,
+            proxy: tunnel?.proxy,
+            port: values.port == null ? undefined : parsePort(values.port),
+            pace: values['no-pace'] ? undefined : createSitePace(),
+            logger,
+        });
+    } catch (error) {
+        await tunnel?.close();
+        throw error;
+    }
     process.stdout.write(`${server.endpoint}\n`);
 
     let closing = false;
@@ -87,6 +116,7 @@ async function run() {
 
     const exit = await server.browser.exited;
     await server.close();
+    await tunnel?.close();
     if (!closing) {
         logger.error('Chrome exited', { code: exit.code, signal: exit.signal });
         process.exit(1);
@@ -125,6 +155,16 @@ async function resolveChrome(params: ResolveChromeParams) {
         throw new Error('Google Chrome is not installed: install it, or pass --chrome <path> or --chrome-for-testing');
     }
     return chrome;
+}
+
+/** The VPN login, from the environment only: on the command line every local user could read it. */
+function readVpnCredentials() {
+    const username = process.env['FLANEUR_VPN_USER'];
+    const password = process.env['FLANEUR_VPN_PASSWORD'];
+    if (username == null || username === '' || password == null || password === '') {
+        throw new Error('--vpn needs the VPN login in FLANEUR_VPN_USER and FLANEUR_VPN_PASSWORD');
+    }
+    return { username, password };
 }
 
 function parsePort(value: string) {

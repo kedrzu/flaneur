@@ -1,4 +1,5 @@
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -11,9 +12,8 @@ import { waitUntil } from '@nzyme/utils/waitUntil.js';
 
 import type { CdpSocket } from './CdpTypes.js';
 import { createSitePace } from './createSitePace.js';
-import type { SitePace } from './createSitePace.js';
 import { launchStealthBrowser } from './launchStealthBrowser.js';
-import type { StealthBrowser } from './launchStealthBrowser.js';
+import type { LaunchStealthBrowserOptions, StealthBrowser } from './launchStealthBrowser.js';
 
 /**
  * These tests drive a real Chromium: Playwright's. It runs headless (no window on a dev Mac, no display on CI) and
@@ -33,6 +33,14 @@ const BRAND_HTML = `<!doctype html><html><body><script>
     worker.onmessage = event => { window.identities.worker = event.data; };
 </script></body></html>`;
 
+/** A page only the test's proxy serves (`startProxy`), so it never reaches the network. */
+const PROXIED_URL = 'http://proxied.test/';
+const PROXIED_HTML = `<!doctype html><html><body><script>
+    fetch('/from-client').then(r => r.text()).then(text => { document.body.dataset.client = text; });
+    const worker = new Worker(URL.createObjectURL(new Blob(["fetch('${PROXIED_URL}from-worker').then(r => r.text()).then(t => postMessage(t))"])));
+    worker.onmessage = event => { document.body.dataset.worker = event.data; };
+</script></body></html>`;
+const PROXY_LOGIN = { username: 'user', password: 'secret' };
 /** Pages a client serves itself through `Fetch` (`servePages`), so they never reach the network. */
 const DETECTOR_URL = 'https://detector.test/';
 /** The detector on another site, hence in another renderer process. */
@@ -110,6 +118,13 @@ interface TestClient {
     call(method: string, params?: object, sessionId?: string): Promise<unknown>;
     /** Settles with the code and reason the proxy closed the socket with. */
     closed: Promise<[number | undefined, string | undefined]>;
+}
+
+/** A request the test's proxy got: its path, whether it carried a login and whether the login was right. */
+interface ProxyRequest {
+    path: string;
+    withLogin: boolean;
+    authorized: boolean;
 }
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
@@ -530,7 +545,7 @@ test('a browser exit closes every client socket', async () => {
 }, 30_000);
 
 test('a held command keeps its session order, and after a block the site is refused with the reason', async () => {
-    const browser = await startBrowser(createSitePace());
+    const browser = await startBrowser({ pace: createSitePace() });
     const client = connectClient(browser);
     const sessionId = await attachClient(client, await createTarget(client));
     await servePages(
@@ -561,7 +576,7 @@ test('a held command keeps its session order, and after a block the site is refu
 
 test("a site's block outlives the browser: the next one launched with the same pace refuses it too", async () => {
     const pace = createSitePace();
-    const first = await startBrowser(pace);
+    const first = await startBrowser({ pace });
     const client = connectClient(first, 'group-a');
     const sessionId = await attachClient(client, await createTarget(client));
     await servePages(client, sessionId, { [SHOP_BLOCKED_URL]: DETECTOR_HTML }, { [SHOP_BLOCKED_URL]: 403 });
@@ -570,17 +585,69 @@ test("a site's block outlives the browser: the next one launched with the same p
     await expect(client.call('Page.navigate', { url: SHOP_URL }, sessionId)).rejects.toThrow(SHOP_PAUSED);
     await first.close();
 
-    const next = connectClient(await startBrowser(pace), 'group-a');
+    const next = connectClient(await startBrowser({ pace }), 'group-a');
     await expect(next.call('Target.createTarget', { url: SHOP_URL })).rejects.toThrow(SHOP_PAUSED);
 }, 30_000);
 
-async function startBrowser(pace?: SitePace) {
+test('behind a proxy with a login, a page and its worker load through it, and a client still intercepts its own requests', async () => {
+    const proxy = await startProxy();
+    const browser = await startBrowser({ proxy: { server: proxy.server, ...PROXY_LOGIN } });
+    const client = connectClient(browser);
+    const sessionId = await attachClient(client, await createTarget(client));
+    client.onMessage(message => {
+        const params = message['params'];
+        if (message['method'] === 'Fetch.requestPaused' && isPlainObject(params)) {
+            void client.call(
+                'Fetch.fulfillRequest',
+                { requestId: params['requestId'], responseCode: 200, body: Buffer.from('client').toString('base64') },
+                sessionId,
+            );
+        }
+    });
+    await client.call('Fetch.enable', { patterns: [{ urlPattern: '*/from-client' }] }, sessionId);
+    await client.call('Page.enable', {}, sessionId);
+
+    await navigate(client, sessionId, PROXIED_URL);
+
+    let loaded: unknown;
+    await waitUntil(
+        async () => {
+            loaded = await evaluateIn(client, sessionId, 'JSON.stringify(document.body.dataset)');
+            return typeof loaded === 'string' && loaded.includes('worker');
+        },
+        { timeoutMs: TIMEOUT_MS },
+    );
+    expect(JSON.parse(String(loaded))).toEqual({ client: 'client', worker: 'proxy:/from-worker' });
+    // The page and the worker's request both reached the proxy with the login, once it asked for it.
+    const authorized = proxy.requests.filter(r => r.authorized).map(r => r.path);
+    expect(authorized).toContain('/');
+    expect(authorized).toContain('/from-worker');
+    expect(proxy.requests.some(r => r.path === '/from-client')).toBe(false);
+    // The proxy's own interception at the browser target never reaches a client.
+    expect(client.messages.some(m => String(m['method']).startsWith('Fetch.') && m['sessionId'] == null)).toBe(false);
+}, 30_000);
+
+test('a proxy that refuses the login gets the request cancelled, not the login again and again', async () => {
+    const proxy = await startProxy();
+    const browser = await startBrowser({ proxy: { server: proxy.server, username: 'user', password: 'wrong' } });
+    const client = connectClient(browser);
+    const sessionId = await attachClient(client, await createTarget(client));
+    await client.call('Page.enable', {}, sessionId);
+
+    await navigate(client, sessionId, PROXIED_URL);
+
+    const tries = proxy.requests.filter(r => r.path === '/' && r.withLogin);
+    expect(tries.length).toBe(1);
+    expect(proxy.requests.some(r => r.authorized)).toBe(false);
+}, 30_000);
+
+async function startBrowser(options: Pick<LaunchStealthBrowserOptions, 'pace' | 'proxy'> = {}) {
     const work = await createWork();
     const browser = await launchStealthBrowser({
         executablePath: EXECUTABLE,
         userDataDir: path.join(work, 'profile'),
         args: HEADLESS_ARGS,
-        pace,
+        ...options,
         logger: createTestLogger('test').logger,
     });
     cleanups.push(() => browser.close());
@@ -827,6 +894,40 @@ function createdTargets(client: TestClient) {
 }
 
 /** Whether any event a client got names `id` (a target or a session) anywhere; replies echo what the client sent. */
+/**
+ * An HTTP proxy that wants `PROXY_LOGIN` and serves every page itself: the proxied page, whose worker fetches
+ * `/from-worker` and which fetches `/from-client` (a client answers it), writing both to its `data-*`. Records what
+ * it was asked for.
+ */
+async function startProxy() {
+    const expected = `Basic ${Buffer.from(`${PROXY_LOGIN.username}:${PROXY_LOGIN.password}`).toString('base64')}`;
+    const requests: ProxyRequest[] = [];
+    const server = createServer((request, response) => {
+        const login = request.headers['proxy-authorization'];
+        const { pathname } = new URL(request.url ?? '/', PROXIED_URL);
+        requests.push({ path: pathname, withLogin: login != null, authorized: login === expected });
+        if (login !== expected) {
+            response.writeHead(407, { 'Proxy-Authenticate': 'Basic realm="proxy"' }).end();
+        } else if (pathname === '/') {
+            response.writeHead(200, { 'content-type': 'text/html' }).end(PROXIED_HTML);
+        } else {
+            response.writeHead(200, { 'content-type': 'text/plain' }).end(`proxy:${pathname}`);
+        }
+    });
+    await new Promise<void>(resolve => {
+        server.listen(0, '127.0.0.1', resolve);
+    });
+    cleanups.push(
+        () =>
+            new Promise(resolve => {
+                server.close(resolve);
+            }),
+    );
+    const address = server.address();
+    const port = isPlainObject(address) ? address['port'] : undefined;
+    return { server: `http://127.0.0.1:${String(port)}`, requests };
+}
+
 function mentions(client: TestClient, id: string) {
     return client.messages.some(m => m['method'] != null && JSON.stringify(m).includes(id));
 }
