@@ -19,3 +19,6 @@ export type {
 } from './launchStealthBrowser.js';
 export { serveStealthBrowser } from './serveStealthBrowser.js';
 export type { ServeStealthBrowserOptions, StealthBrowserServer } from './serveStealthBrowser.js';
+export { startVpnTunnel } from './startVpnTunnel.js';
+export type { StartVpnTunnelOptions, VpnCredentials, VpnGeolocation, VpnTunnel } from './startVpnTunnel.js';
+export type { StealthBrowserProxy } from './StealthBrowserProxy.js';

@@ -6,6 +6,9 @@ A stealth Chrome for AI agents. flaneur launches a real Chrome with a persistent
 DevTools Protocol (CDP) behind a proxy that keeps the agent's code out of what page scripts can observe, brands every
 page as Google Chrome and holds each site to a human pace. Sites see a person browsing, not a bot.
 
+With `--vpn <region>` it browses from another country: only the browser goes through a VPN tunnel in Docker, the rest
+of the computer stays on its own network.
+
 Runs on Node.js 22+ and Bun.
 
 ## Quick start

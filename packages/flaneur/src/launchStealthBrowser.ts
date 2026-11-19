@@ -15,10 +15,12 @@ import type { CdpErrorReply, CdpEvent, CdpPolicy, CdpSocket } from './CdpTypes.j
 import { connectClient } from './connectClient.js';
 import type { CdpClient } from './connectClient.js';
 import { createBrandOverride } from './createBrandOverride.js';
+import { createProxyAuth } from './createProxyAuth.js';
 import { createSessionRegistry } from './createSessionRegistry.js';
 import { ATTACH_SITE_PACE } from './createSitePace.js';
 import type { SitePace } from './createSitePace.js';
 import { splitPipeFrames } from './splitPipeFrames.js';
+import type { StealthBrowserProxy } from './StealthBrowserProxy.js';
 
 /** How the browser is launched, and what its clients may do. */
 export interface LaunchStealthBrowserOptions<D = unknown> {
@@ -28,6 +30,8 @@ export interface LaunchStealthBrowserOptions<D = unknown> {
     userDataDir: string;
     /** Appended to the base command line, e.g. `--headless=new`. */
     args?: string[];
+    /** The HTTP proxy every request goes through, e.g. a VPN tunnel's; none: the browser connects directly. */
+    proxy?: StealthBrowserProxy;
     /**
      * Judges each client request after the proxy's session and target checks and before its stealth rules, which no
      * policy can lift; `D` is the data the caller passes to `connect` for each client.
@@ -149,6 +153,7 @@ export async function launchStealthBrowser<D = unknown>(
     const { stderr, pipe, input } = readPipes(child);
 
     const brand = createBrandOverride({ send: call, registry, logger });
+    const proxyAuth = createLaunchProxyAuth();
     const pace = options.pace?.[ATTACH_SITE_PACE](registry);
     const exited = new Promise<StealthBrowserExit>(resolve => {
         child.once('exit', (code, signal) => resolve(onExit(code, signal)));
@@ -201,6 +206,7 @@ export async function launchStealthBrowser<D = unknown>(
     };
 
     async function configure() {
+        await proxyAuth?.start();
         await call('Target.setDiscoverTargets', { discover: true });
         await brand.start();
     }
@@ -278,7 +284,11 @@ export async function launchStealthBrowser<D = unknown>(
     }
 
     async function spawnBrowser() {
-        const args = buildStealthArgs({ userDataDir: options.userDataDir, args: options.args });
+        const args = buildStealthArgs({
+            userDataDir: options.userDataDir,
+            proxyServer: options.proxy?.server,
+            args: options.args,
+        });
         // fd 3 is what the browser reads commands from, fd 4 where it writes replies and events.
         const spawned = spawn(options.executablePath, args, { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
         await new Promise<void>((resolve, reject) => {
@@ -286,6 +296,15 @@ export async function launchStealthBrowser<D = unknown>(
             spawned.once('error', reject);
         });
         return spawned;
+    }
+
+    function createLaunchProxyAuth() {
+        const { username, password } = options.proxy ?? {};
+        if (username == null && password == null) {
+            return null;
+        }
+        assert(username != null && password != null, 'A proxy login needs both a username and a password');
+        return createProxyAuth({ send: call, username, password, logger });
     }
 
     function call(method: string, params?: object, sessionId?: string) {
@@ -335,6 +354,7 @@ export async function launchStealthBrowser<D = unknown>(
 
     function dispatchEvent(event: CdpEvent) {
         registry.observe(event);
+        proxyAuth?.observe(event);
         brand.observe(event);
         pace?.observe(event);
         for (const listener of listeners) {
