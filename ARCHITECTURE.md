@@ -36,13 +36,15 @@ package and is not published to npm; Claude Code installs it from GitHub. Its `v
   (`tests:full` for every test). CI runs all four, with `tests:full`, on every pull request
   (`.github/workflows/build.yml`, required check `Build`).
 - **Release:** pushing a `v*` tag runs `.github/workflows/release.yml`: build, typecheck, tests, then
-  `bun pm pack` (which rewrites `workspace:*` to real versions) and `npm publish --provenance` of that
+  `bun pm pack` (which rewrites `workspace:*` to real versions),
+  `scripts/checkPackedRelease.sh` (the pinned `@nzyme/*` source equals each package's nzyme release tag, and the
+  tarball installs from npm and loads on Node) and `npm publish --provenance` of that
   tarball through npm trusted publishing (OIDC). A manual dispatch publishes the version in
   `packages/flaneur/package.json`.
 - **Git:** one branch and one pull request per change, squash-merged to `main`, Conventional Commits
-  (`.claude/skills/git-workflow/SKILL.md`). The nzyme pin moves through bump PRs opened by
-  `.github/workflows/bump-nzyme.yml`, and `.github/workflows/verify-submodules.yml` checks that every
-  pin is on nzyme `main`.
+  (`.claude/skills/git-workflow/SKILL.md`). The nzyme pin moves with every task: `setup.sh` moves it in each worktree
+  to the latest nzyme release, and the task's PR carries the bump. `.github/workflows/verify-submodules.yml`
+  checks that every pin is on nzyme `main`.
 - **Agents:** `CLAUDE.md`, the skills under `.claude/skills/`.
 
 ## Decisions
@@ -54,3 +56,8 @@ package and is not published to npm; Claude Code installs it from GitHub. Its `v
 - **`rollup` is pinned to 4.62.2 in the root `overrides`.** nzyme's `@nzyme/pulumi` does not type-check
   against rollup 4.68 (its plugin types no longer match `rollup-plugin-stats`), and the workspace builds
   every nzyme package. Drop the override once nzyme builds against current rollup.
+- **No scheduled nzyme bump; `setup.sh` moves the pin to the latest nzyme release in every worktree.** The published
+  `flaneur` depends on the `@nzyme/*` versions of the pin, so the pinned code must be what npm serves under those
+  versions: a pin on unreleased nzyme `main` would be tested against code no user installs. Bumping in each task keeps
+  the pin current, and the agent fixes what a new release breaks inside that task's PR. A pin ahead of the latest
+  release (an nzyme change the package needs) is allowed, but `flaneur` is not published until nzyme releases it.

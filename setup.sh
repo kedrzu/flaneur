@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Full workspace setup for a fresh clone or worktree (Paseo runs it for every new worktree — see
 # paseo.json): checks the toolchain, catches a worktree up with main, checks out the pinned nzyme
-# submodule, then builds everything (setup.build.sh, which CI runs too).
+# submodule and, in a worktree, moves it to the latest nzyme release, then builds everything
+# (setup.build.sh, which CI runs too).
 set -e
 
 cd "$(dirname "$0")"
@@ -129,6 +130,38 @@ if [ "$CI" != "true" ]; then
     echo "📦 Checking out the pinned submodule commits..."
     echo ""
     git submodule update --init --recursive --checkout
+fi
+
+# --- nzyme: move the pin to the latest release ---
+#
+# Worktrees only, so every task's PR carries the bump and the agent fixes what it breaks. The target is
+# the latest nzyme release tag, never nzyme main: the published `flaneur` depends on the `@nzyme/*`
+# versions of the pin, so the pinned code must be what npm serves under those versions. The pin only
+# moves forward; a pin ahead of the latest release (an nzyme change not released yet) is kept and
+# reported, since `flaneur` cannot be published on it.
+if [ "$CI" != "true" ] && [ "$repo_root" != "$(pwd -P)" ]; then
+    echo ""
+    echo "🏷️ Moving nzyme to its latest release..."
+    echo ""
+
+    if ! git -C nzyme fetch --quiet --tags origin; then
+        warn "Could not fetch nzyme tags (offline?): the nzyme pin stays where it is."
+    else
+        nzyme_release=$(git -C nzyme tag -l 'v[0-9]*' --sort=-v:refname | grep -v -- '-' | head -1)
+        nzyme_pin=$(git -C nzyme rev-parse HEAD)
+        nzyme_release_commit=$(git -C nzyme rev-parse "$nzyme_release^{commit}")
+
+        if [ "$nzyme_release_commit" = "$nzyme_pin" ]; then
+            echo "✅ nzyme is at its latest release, $nzyme_release"
+        elif git -C nzyme merge-base --is-ancestor "$nzyme_pin" "$nzyme_release_commit"; then
+            git -C nzyme checkout --quiet "$nzyme_release_commit"
+            warn "nzyme moved to $nzyme_release: commit the pin and bun.lock with this change, and fix what it breaks."
+        elif git -C nzyme merge-base --is-ancestor "$nzyme_release_commit" "$nzyme_pin"; then
+            warn "nzyme pin is ahead of its latest release, $nzyme_release: flaneur cannot be published until nzyme releases it."
+        else
+            warn "nzyme pin and its latest release, $nzyme_release, have diverged: pick the pin by hand."
+        fi
+    fi
 fi
 
 # --- Build ---

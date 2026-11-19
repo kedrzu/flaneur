@@ -38,8 +38,9 @@ they vanish in the squash. Update the title when the PR's scope changes.
 ## Start
 
 Paseo cuts the worktree's branch from `origin/main`, and its setup (`paseo.json` → `setup.sh`) has already merged
-`origin/main` into it, copied the local files from the main checkout, checked out the pinned nzyme and built the
-workspace.
+`origin/main` into it, copied the local files from the main checkout, checked out the pinned nzyme, moved it to the
+latest nzyme release and built the workspace. A moved pin belongs to the task's PR: commit it with `bun.lock`, and fix
+what the new nzyme breaks as part of the change.
 
 1. As soon as the task is known, rename the generated branch before its first push: `git branch -m <type>/<N>-<slug>`.
    Find or create the issue first, when the task has one:

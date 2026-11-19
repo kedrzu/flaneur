@@ -6,8 +6,9 @@
 # first publish needs a one-off `NPM_TOKEN` secret; once the trusted publisher is set, delete it.
 #
 # The package depends on `@nzyme/*` as `workspace:*`. `bun pm pack` rewrites those to the exact
-# versions of the pinned nzyme packages, which must therefore be on npm already; `npm publish` then
-# uploads that tarball, since bun cannot publish through OIDC.
+# versions of the pinned nzyme packages, which must therefore be on npm already, with the same source
+# as the pin (scripts/checkPackedRelease.sh checks both); `npm publish` then uploads that tarball,
+# since bun cannot publish through OIDC.
 
 name: Release
 
@@ -80,6 +81,11 @@ jobs:
             exit 1
           fi
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      # The tests ran on the pinned nzyme source; users install `@nzyme/*` from npm. Stops the release
+      # when the two differ or a version is not on npm.
+      - name: Check the package against npm
+        run: bash scripts/checkPackedRelease.sh "${{ steps.pack.outputs.tarball }}"
 
       # Only for the first publish, before the trusted publisher exists. Without the secret, npm
       # authenticates through OIDC.
