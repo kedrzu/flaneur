@@ -23,7 +23,8 @@ Run from the repo root:
 
 - `zsh setup.sh` — full setup; in a worktree it also catches up with `origin/main` and copies the
   local files. `bash setup.build.sh` is the build half, shared with CI.
-- `bun run build` — `tsgo --build`; `bun run watch` rebuilds on change.
+- `bun run build` — `tsgo --build`, then the extension's bundles (`packages/chrome-extension/dist`); `bun run watch`
+  rebuilds the TypeScript on change, not the bundles.
 - `bun run typecheck` — build, then each package's own typecheck.
 - `bun run tests` — the tests the current change can break (`nzyme git affected`); `bun run tests:full`
   runs all of them, `bun test packages/<pkg>/src` one package. Not bare `bun test` for the whole

@@ -1,6 +1,7 @@
 /** Which Chrome the CLI runs, as `--chrome` names it. */
 export type ChromeOption =
     | { type: 'installed' }
+    | { type: 'own' }
     | { type: 'testing'; version?: string }
     | { type: 'path'; path: string };
 
@@ -8,13 +9,17 @@ export type ChromeOption =
 const TESTING = 'testing';
 
 /**
- * Reads `--chrome`: `installed` (the default), `testing`, `testing@<version>`, or a path to the binary. Only a value
+ * Reads `--chrome`: `installed` (the default), `own` (the user's own Chrome, through the flaneur extension),
+ * `testing`, `testing@<version>`, or a path to the binary. Only a value
  * with a path separator is a path, so a mistyped keyword fails here instead of being spawned as a program.
  * @__NO_SIDE_EFFECTS__
  */
 export function parseChromeOption(value: string | undefined): ChromeOption {
     if (value == null || value === 'installed') {
         return { type: 'installed' };
+    }
+    if (value === 'own') {
+        return { type: 'own' };
     }
     if (value === TESTING) {
         return { type: 'testing' };
@@ -29,5 +34,5 @@ export function parseChromeOption(value: string | undefined): ChromeOption {
     if (value.includes('/') || value.includes('\\')) {
         return { type: 'path', path: value };
     }
-    throw new Error(`--chrome is not installed, testing, testing@<version> or a path: ${value}`);
+    throw new Error(`--chrome is not installed, own, testing, testing@<version> or a path: ${value}`);
 }

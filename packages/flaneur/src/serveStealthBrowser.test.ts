@@ -7,8 +7,8 @@ import { chromium } from 'playwright';
 
 import { createTestLogger } from '@nzyme/logging/createTestLogger.js';
 
+import type { StealthBrowserServer } from './serveBrowser.js';
 import { serveStealthBrowser } from './serveStealthBrowser.js';
-import type { StealthBrowserServer } from './serveStealthBrowser.js';
 
 /** A real Chromium, Playwright's, headless and without the sandbox, which CI runners do not allow. */
 const TIMEOUT_MS = 20_000;

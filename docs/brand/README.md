@@ -10,6 +10,7 @@ them.
 |-|-|
 |`signet.svg`|The primary mark: the walking figure on a rounded tile|
 |`signet-hat.svg`|The small mark: the top hat alone, for every favicon-sized use|
+|`hat.svg`|The hat with no tile, on a transparent background, cropped to it: the Chrome extension's icons|
 |`lockup.svg` / `lockup-dark.svg`|Signet and wordmark side by side, for light and dark backgrounds|
 |`wordmark.svg` / `wordmark-dark.svg`|The name alone, for light and dark backgrounds|
 |`favicon.ico`|The hat at 16 and 32 px, the figure at 48 px|

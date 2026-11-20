@@ -1,0 +1,22 @@
+{
+    "name": "@flaneur/chrome-extension",
+    "version": "0.1.0",
+    "private": true,
+    "description": "The Chrome extension that lets flaneur drive the user's own Chrome: tabs and chrome.debugger over native messaging",
+    "license": "MIT",
+    "type": "module",
+    "scripts": {
+        "build": "tsgo --build tsconfig.esm.json && bun run bundle",
+        "bundle": "bun build src/serviceWorker.ts src/options.ts --outdir dist --target browser --format esm",
+        "pack": "bun run bundle && bun scripts/pack.ts"
+    },
+    "dependencies": {
+        "@nzyme/utils": "workspace:*",
+        "flaneur": "workspace:*"
+    },
+    "devDependencies": {
+        "@nzyme/tsconfig": "workspace:*",
+        "@types/chrome": "^0.1.43",
+        "@typescript/native-preview": "^7.0.0-dev.20260707.2"
+    }
+}

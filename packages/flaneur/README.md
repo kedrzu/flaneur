@@ -25,7 +25,7 @@ honours the CLI's `node` shebang and runs it on Node when Node is installed.
 ## CLI
 
 ```bash
-npx flaneur [--chrome installed|testing|testing@<version>|<path>] \
+npx flaneur [--chrome installed|own|testing|testing@<version>|<path>] \
     [--user-data-dir <dir>] [--port <n>] [--no-pace] \
     [--vpn <region> --vpn-provider <name>] [-- <chrome args>]
 ```
@@ -37,6 +37,7 @@ endpoint drives the browser: it listens on `127.0.0.1` only and refuses any conn
 - **Chrome:** `--chrome` picks it. `installed`, the default, is the installed Google Chrome. `testing` downloads the
   pinned Chrome for Testing once, checks its SHA-256 and reuses it; `testing@<version>` picks another version,
   downloaded over HTTPS but unverified. A value with a path separator (`/` or `\`) is the path to any Chrome binary.
+  `own` is your own running Chrome, with your profile and logins, through the flaneur extension (see below).
 - **Profile and cache:** a persistent profile and the Chrome for Testing cache live in `flaneur/` in the
   user's app data: `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows,
   `${XDG_DATA_HOME:-~/.local/share}` on Linux. `--user-data-dir` sets another profile.
@@ -87,6 +88,56 @@ How it works:
 The region holds for the CLI's lifetime, as Chrome cannot change its proxy while it runs: another region is another
 start. Why the login goes over CDP: [`docs/decisions/vpn-tunnels.md`](../../docs/decisions/vpn-tunnels.md).
 
+### Your own Chrome
+
+`--chrome own` drives the Google Chrome you browse with, signed in to the sites you are signed in to, through the
+flaneur extension. The endpoint, the stealth rules and the pace are the same as with a launched Chrome.
+
+```bash
+npx flaneur --chrome own
+```
+
+Once, in Chrome:
+
+1. Install the extension. Until it is on the Chrome Web Store: `bun run build` in a clone of this repo, then in
+   `chrome://extensions` switch on Developer mode, **Load unpacked** and pick `packages/chrome-extension`.
+2. Optionally, in the extension's options (click its icon), choose which tabs agents can use: **only tabs the agent
+   opens** (the default) or **all my tabs**. Changing it disconnects a connected agent, which connects again with the
+   new choice.
+
+Installing the extension is the consent: it connects to flaneur whenever Chrome runs.
+
+When Chrome is not running, the CLI starts it, without flags, and waits 45 s for the extension; without it, it exits
+with code 1 and says where to install the extension. The extension's icon shows `ON` while an agent is connected.
+
+- **A window of its own:** the agent's tabs open in one agent window, created without focus, so your window keeps it.
+  They still read as visible and focused. `Target.activateTarget` and `Page.bringToFront` activate the tab and bring
+  that window to the front, e.g. for you to sign in.
+- **Its tabs stay open** when the CLI stops; flaneur only lets go of them. They are then yours: the next agent does
+  not see them unless it may use all tabs.
+- **One client per tab at a time:** a second client attaching to a tab is refused until the first detaches.
+- **Web pages only:** the agent opens and sees `http:`, `https:` and `about:blank` tabs, never Chrome's own pages or
+  extensions.
+- **Not in this mode:** `--vpn`, `--user-data-dir` and Chrome arguments after `--`, which all shape a Chrome flaneur
+  starts. One CLI per Chrome: a second gets an error. With the extension in several Chrome profiles, the first to
+  connect is the one driven.
+- **The yellow bar:** while the extension is attached, Chrome shows a bar saying flaneur is debugging the browser. It
+  shrinks the window's content once, as any window resize does. **Cancel** on it detaches the agent from its tabs.
+- **Exit:** code 1 when Chrome closes, or the extension is turned off, removed or reloaded.
+
+How it works: the extension drives tabs through `chrome.debugger` and talks to a native messaging host, a small
+script Chrome starts. On each start the CLI copies the host into `own-chrome/` of its app data folder and registers it
+for Chrome: a manifest in Chrome's `NativeMessagingHosts` folder (macOS, Linux) or the registry (Windows), admitting
+the flaneur extension only. The host relays between Chrome and a local socket the CLI connects to. `chrome.debugger`
+reaches tabs only, so the browser-level `Target.*` and `Browser.*` methods are emulated in flaneur, in front of the
+same proxy as a launched Chrome.
+
+Security: the socket lives in a folder only you may enter (`0700`; on Windows a named pipe the host stays silent on
+until the client speaks), which keeps other users out but not other programs you run: while Chrome runs with the
+extension, any program running as you can drive your signed-in Chrome. That is the threat for which Chrome 136 stopped
+debugging switches on your own profile; the yellow bar shows when it happens. Remove or turn off the extension in
+`chrome://extensions` when you do not want it. Why it is built this way: [`docs/decisions/own-chrome.md`](../../docs/decisions/own-chrome.md).
+
 ### With agent-browser
 
 ```bash
@@ -99,7 +150,14 @@ every call. Any other client that takes a CDP WebSocket URL works the same way.
 ## Library
 
 ```ts
-import { createSitePace, launchStealthBrowser, serveStealthBrowser, startVpnTunnel } from 'flaneur';
+import {
+    connectOwnChrome,
+    createSitePace,
+    launchStealthBrowser,
+    serveBrowser,
+    serveStealthBrowser,
+    startVpnTunnel,
+} from 'flaneur';
 ```
 
 - `launchStealthBrowser({ executablePath, userDataDir, args?, proxy?, policy?, pace?, logger? })` launches Chrome over
@@ -112,7 +170,8 @@ import { createSitePace, launchStealthBrowser, serveStealthBrowser, startVpnTunn
 - `createSitePace()` creates the human pace. Hand the same pace to each launch: what it learned of blocks outlives a
   browser restart.
 - `serveStealthBrowser(options & { port? })` is what the CLI runs: it launches the browser and serves it at a
-  tokenised `127.0.0.1` endpoint, each socket a client with no group. `close()` stops both.
+  tokenised `127.0.0.1` endpoint, each socket a client with no group. `close()` stops both. `serveBrowser(browser,
+  { port?, logger? })` is its serving half, for a browser already started.
 - `proxy: { server, username?, password? }` on a launch sends every request through an HTTP proxy. Chrome takes no
   proxy login on its command line, so the browser answers the proxy's challenges itself over CDP (`Fetch` on the
   browser target, unseen by pages and clients); a client's own `Fetch` on a page keeps working.
@@ -122,6 +181,10 @@ import { createSitePace, launchStealthBrowser, serveStealthBrowser, startVpnTunn
   `<cacheDir>/<version>-<platform>/`, a folder that exists only once a verified archive is fully unpacked; concurrent
   calls share one download. `findChromeForTesting({ cacheDir, version? })` finds it without downloading.
   `findChrome()` finds the installed Google Chrome in its standard place.
+- `connectOwnChrome({ dataDir, policy?, pace?, logger? })` is `--chrome own`: it registers the native messaging host
+  in `<dataDir>/own-chrome`, starts Chrome when it is not running, and resolves with the browser once the extension
+  connects, within 45 s (`timeoutMs`). Serve it with `serveBrowser`; closing it detaches the extension from every tab
+  and leaves Chrome and its tabs open.
 
 ## In the background
 
@@ -132,6 +195,8 @@ without activating anything. The pages still read as visible and focused (`docum
 
 A tab or popup a page opens itself, such as a click on a `target="_blank"` link or `window.open`, is Chrome's own
 doing: it still brings Chrome to the front.
+
+This is the launched Chrome; your own Chrome has an agent window instead ([Your own Chrome](#your-own-chrome)).
 
 ## The price of isolation
 

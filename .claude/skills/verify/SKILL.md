@@ -51,5 +51,6 @@ Rules:
 ## Where the checks run
 
 On a pull request and on every push to `main` CI runs `.github/workflows/build.yml`: the job `Build` runs `setup.build.sh`, then steps 2-5 (checks
-only, no fixes), plus `Verify Submodules` on the nzyme pin. The release workflow (`.github/workflows/release.yml`) runs
+only, no fixes), plus `Verify Submodules` on the nzyme pin, and `Own Chrome (Windows)` runs the `--chrome own` integration tests
+(`connectOwnChrome.extension.test.ts`, `nativeHost.test.ts`) on Windows. The release workflow (`.github/workflows/release.yml`) runs
 the build, typecheck and tests again before it publishes.

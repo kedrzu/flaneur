@@ -1,0 +1,29 @@
+{
+    "manifest_version": 3,
+    "name": "flaneur",
+    "version": "0.1.1",
+    "description": "Lets AI agents running flaneur on this computer browse in this Chrome.",
+    "icons": {
+        "16": "icons/icon-16.png",
+        "32": "icons/icon-32.png",
+        "48": "icons/icon-48.png",
+        "128": "icons/icon-128.png"
+    },
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqT8JV39iB8TQet0q4ThIhOj0cWg8Mq7xqiHkb8fi+EPIJBMjkiQPgJjiDaRCI+xuWjtObhSdSy5iyoONGl+ojvhH6wXKd/BHCbINjl/gcZYxEY0uIFjd6Ohs/uVM8Huh3pspMX4G30j2pxmUS8BsMiv/xKdmokHzLN/4BsRT2QevZVrFIFPuWB3228BsT53LOgFVi2pZF7kfWSvZi4SC4usZ1SibqNUYyDciOjZKkb7ECe6au3ch2ZoQdGdWiizScGFL5e/Dj9zE4KONiWItrsDkh3BVmwCAYlWfq+DxT3kJhxHy73UyOkZooHpvK9YZwv36O9DuO2OYZjp8lIpE2wIDAQAB",
+    "permissions": ["debugger", "tabs", "nativeMessaging", "storage", "alarms"],
+    "background": {
+        "service_worker": "dist/serviceWorker.js",
+        "type": "module"
+    },
+    "action": {
+        "default_title": "flaneur",
+        "default_icon": {
+            "16": "icons/icon-16.png",
+            "32": "icons/icon-32.png"
+        }
+    },
+    "options_ui": {
+        "page": "options.html",
+        "open_in_tab": true
+    }
+}
