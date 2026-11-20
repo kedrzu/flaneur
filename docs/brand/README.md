@@ -13,6 +13,7 @@ them.
 |`lockup.svg` / `lockup-dark.svg`|Signet and wordmark side by side, for light and dark backgrounds|
 |`wordmark.svg` / `wordmark-dark.svg`|The name alone, for light and dark backgrounds|
 |`favicon.ico`|The hat at 16 px, the figure at 32 and 48 px|
+|`/favicon.svg`|A link to `signet.svg` at the repo root, where tools that show a project icon look for one|
 |`png/signet-{32,48,128,512}.png`|The figure, e.g. a Chrome extension's 32, 48 and 128 px icons|
 |`png/signet-hat-{16,32}.png`|The hat, e.g. a Chrome extension's 16 px icon|
 
