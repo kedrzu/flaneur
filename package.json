@@ -8,7 +8,7 @@
     "type": "module",
     "scripts": {
         "setup": "zsh setup.sh",
-        "build": "tsgo --build",
+        "build": "tsgo --build && bun run --cwd packages/extension bundle",
         "typecheck": "bun run build && tsgo -p scripts && nx run-many -t typecheck --exclude='@nzyme/*'",
         "monorepo": "nzyme monorepo",
         "localise": "nzyme localise",

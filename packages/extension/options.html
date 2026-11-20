@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>flaneur</title>
+    <style>
+      body {
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+        max-width: 36rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        color: #1f2328;
+      }
+      fieldset {
+        border: 1px solid #d0d7de;
+        border-radius: 6px;
+        margin: 1.5rem 0;
+        padding: 0.5rem 1rem 1rem;
+      }
+      fieldset:disabled {
+        opacity: 0.5;
+      }
+      label {
+        display: block;
+        margin-top: 0.75rem;
+        font-weight: 600;
+      }
+      .hint {
+        margin: 0.25rem 0 0 1.6rem;
+        color: #59636e;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>flaneur</h1>
+    <p>
+      flaneur lets AI agents running on this computer browse in this Chrome, signed in to the sites you are signed in
+      to.
+    </p>
+
+    <label>
+      <input
+        id="allowAgents"
+        type="checkbox"
+      />
+      Allow agents to use this Chrome
+    </label>
+    <p class="hint">While this is off, no agent can connect. Turning it off disconnects a connected agent.</p>
+
+    <fieldset id="scope">
+      <legend>Which tabs agents can use</legend>
+      <label>
+        <input
+          name="scope"
+          type="radio"
+          value="agent"
+        />
+        Only tabs the agent opens
+      </label>
+      <p class="hint">The agent opens its tabs in a window of its own. It cannot see or touch your tabs.</p>
+      <label>
+        <input
+          name="scope"
+          type="radio"
+          value="all"
+        />
+        All my tabs
+      </label>
+      <p class="hint">The agent can see, read and control every tab you have open.</p>
+    </fieldset>
+    <p class="hint">Changing this disconnects a connected agent; it connects again with the new choice.</p>
+
+    <script
+      type="module"
+      src="dist/options.js"
+    ></script>
+  </body>
+</html>

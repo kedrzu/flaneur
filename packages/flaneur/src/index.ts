@@ -15,6 +15,7 @@ export { findChromeForTesting } from './findChromeForTesting.js';
 export type { FindChromeForTestingOptions } from './findChromeForTesting.js';
 export { installChromeForTesting } from './installChromeForTesting.js';
 export type { InstallChromeForTestingOptions, InstalledChromeForTesting } from './installChromeForTesting.js';
+export { OWN_CHROME_PROTOCOL_VERSION } from './OwnChromeProtocol.js';
 export type {
     OwnChromeDebuggerAttach,
     OwnChromeDebuggerDetach,

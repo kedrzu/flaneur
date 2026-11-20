@@ -30,8 +30,9 @@ step "🛠️ Generating tsconfigs and translations..."
 bun run monorepo
 bun run localise
 
+# TypeScript, then the bundles that make `packages/extension` a loadable extension.
 step "📝 Building typescript..."
-bun x tsgo --build
+bun run build
 
 # flaneur's tests launch a real Chromium, Playwright's, headless and without the sandbox. Installed
 # browsers are skipped, so this is quick after the first run. A CI runner also lacks the browser's
