@@ -388,6 +388,10 @@ function getChromeArgs(profileDir: string) {
     } else if (process.platform === 'linux') {
         // CI runners do not allow Chrome's sandbox, and have no keyring.
         args.push('--no-sandbox', '--password-store=basic');
+    } else if (process.platform === 'win32') {
+        // The sandbox cannot reach Playwright's Chrome on a CI runner ("Sandbox cannot access executable"), and every
+        // renderer and the network service die with it.
+        args.push('--no-sandbox');
     }
     return args;
 }
