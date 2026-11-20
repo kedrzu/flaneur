@@ -18,7 +18,7 @@ until [ -s /tmp/flaneur.endpoint ]; do sleep 0.5; done
 FLANEUR="$(head -n1 /tmp/flaneur.endpoint)"
 ```
 
-- It uses the installed Google Chrome. Without one, add `--chrome-for-testing`: it downloads a pinned, checksummed
+- It uses the installed Google Chrome. Without one, add `--chrome testing`: it downloads a pinned, checksummed
   Chrome for Testing once.
 - **Another country:** when the task needs the site as seen from elsewhere, add
   `--vpn "<region>" --vpn-provider "<provider>"` (e.g. `--vpn "US Texas" --vpn-provider "private internet access"`).
