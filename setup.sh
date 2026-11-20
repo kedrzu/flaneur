@@ -168,6 +168,18 @@ fi
 
 bash setup.build.sh
 
+# --- Claude Code plugins ---
+#
+# Claude Code records a project-scope plugin install against the checkout's path, so every clone and
+# worktree needs its own install of the plugins `.claude/settings.json` enables; nzyme's shared script
+# does it, and restores `.claude/settings.json`, which the installs rewrite.
+if [ "$CI" != "true" ]; then
+    echo ""
+    echo "🧩 Setting up the project's Claude Code plugins..."
+    echo ""
+    bash nzyme/scripts/claude-plugins.sh || warn "Some Claude Code plugins were not set up: see the lines above."
+fi
+
 # --- Code index (agent navigation) ---
 #
 # Not part of setup.build.sh: CI has no agent to read it. Non-fatal — an indexing failure must never
