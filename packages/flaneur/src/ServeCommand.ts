@@ -5,11 +5,13 @@ import { Option } from '@nzyme/cli-core';
 import { Command } from '@nzyme/cli-core/Command.js';
 import { assertNever } from '@nzyme/utils/assertNever.js';
 
+import { connectOwnChrome } from './connectOwnChrome.js';
 import { createSitePace } from './createSitePace.js';
 import { findChrome } from './findChrome.js';
 import { installChromeForTesting } from './installChromeForTesting.js';
 import { parseChromeOption } from './parseChromeOption.js';
 import type { ChromeOption } from './parseChromeOption.js';
+import { serveBrowser } from './serveBrowser.js';
 import type { StealthBrowserServer } from './serveBrowser.js';
 import { serveStealthBrowser } from './serveStealthBrowser.js';
 import { startVpnTunnel } from './startVpnTunnel.js';
@@ -34,6 +36,7 @@ export class ServeCommand extends Command {
         examples: [
             ['Serve the installed Google Chrome', 'flaneur'],
             ['Serve the pinned Chrome for Testing', 'flaneur --chrome testing'],
+            ['Serve your own Chrome, signed in as you are, through the flaneur extension', 'flaneur --chrome own'],
             [
                 'Browse through a VPN region',
                 'FLANEUR_VPN_USER=… FLANEUR_VPN_PASSWORD=… flaneur --vpn "US Texas" --vpn-provider "private internet access"',
@@ -43,8 +46,9 @@ export class ServeCommand extends Command {
 
     chrome = Option.String('--chrome', {
         description:
-            'Which Chrome runs: `installed` (the default), `testing` (the pinned Chrome for Testing, installed once), ' +
-            '`testing@<version>` (another version, downloaded unverified) or a path to any Chrome binary',
+            'Which Chrome runs: `installed` (the default), `own` (your own Chrome with your profile, through the flaneur ' +
+            'extension), `testing` (the pinned Chrome for Testing, installed once), `testing@<version>` (another ' +
+            'version, downloaded unverified) or a path to any Chrome binary',
     });
 
     userDataDir = Option.String('--user-data-dir', {
@@ -75,6 +79,18 @@ export class ServeCommand extends Command {
         }
 
         const dataDir = getDataDir();
+        const pace = this.pace ? createSitePace() : undefined;
+        if (chrome.type === 'own') {
+            this.checkOwnChromeOptions();
+            const browser = await connectOwnChrome({ dataDir, pace, logger: this.logger });
+            try {
+                return await this.serve(await serveBrowser(browser, { port, logger: this.logger }));
+            } catch (error) {
+                await browser.close();
+                throw error;
+            }
+        }
+
         const executablePath = await this.resolveChrome(chrome, dataDir);
         const tunnel =
             this.vpn == null || this.vpnProvider == null
@@ -93,13 +109,25 @@ export class ServeCommand extends Command {
                 args: this.chromeArgs,
                 proxy: tunnel?.proxy,
                 port,
-                pace: this.pace ? createSitePace() : undefined,
+                pace,
                 logger: this.logger,
             });
         } catch (error) {
             await tunnel?.close();
             throw error;
         }
+        try {
+            return await this.serve(server);
+        } finally {
+            await tunnel?.close();
+        }
+    }
+
+    /**
+     * Prints the endpoint and serves until the browser goes (exit code 1) or the process is stopped (exit code 0): a
+     * launched Chrome closes, the user's own Chrome is only let go.
+     */
+    private async serve(server: StealthBrowserServer) {
         this.context.stdout.write(`${server.endpoint}\n`);
 
         let closing = false;
@@ -108,7 +136,6 @@ export class ServeCommand extends Command {
 
         const exit = await server.browser.exited;
         await server.close();
-        await tunnel?.close();
         if (closing) {
             return 0;
         }
@@ -121,7 +148,20 @@ export class ServeCommand extends Command {
         }
     }
 
-    private async resolveChrome(chrome: ChromeOption, dataDir: string) {
+    /** The options that shape a Chrome flaneur starts, which the user's own running Chrome cannot take. */
+    private checkOwnChromeOptions() {
+        if (this.userDataDir != null) {
+            throw new Error('--chrome own uses your own Chrome profile: drop --user-data-dir');
+        }
+        if (this.chromeArgs.length > 0) {
+            throw new Error('--chrome own drives your Chrome as it runs: arguments after -- cannot reach it');
+        }
+        if (this.vpn != null) {
+            throw new Error('--chrome own cannot browse through a VPN: your Chrome keeps its own connection');
+        }
+    }
+
+    private async resolveChrome(chrome: Exclude<ChromeOption, { type: 'own' }>, dataDir: string) {
         switch (chrome.type) {
             case 'installed': {
                 const executablePath = findChrome();

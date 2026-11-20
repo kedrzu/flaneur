@@ -6,6 +6,7 @@ import type { ChromeOption } from './parseChromeOption.js';
 test.each<[string | undefined, ChromeOption]>([
     [undefined, { type: 'installed' }],
     ['installed', { type: 'installed' }],
+    ['own', { type: 'own' }],
     ['testing', { type: 'testing' }],
     ['testing@150.0.7000.0', { type: 'testing', version: '150.0.7000.0' }],
     ['/opt/chromium/chrome', { type: 'path', path: '/opt/chromium/chrome' }],
