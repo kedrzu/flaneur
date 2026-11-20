@@ -76,13 +76,15 @@ The thin extension, reached through a native messaging host.
   on Windows to a named pipe where other users may only read and the host sends nothing before a client speaks. One
   flaneur at a time: a second gets a `busy` line. The CLI writes the host and its registration again on every start, so
   a moved Node or a new flaneur is picked up.
-- **"Allow agents to use this Chrome", off by default.** The socket keeps other users out, not other programs of the
-  same user: exactly the threat Chrome 136 closed. So the extension connects to no host until the user switches agents
-  on in its options, and switching off disconnects a connected agent.
+- **No switch: installing the extension is the consent.** The extension connects to the host whenever Chrome runs,
+  at startup and every 30 s while no port is open.
 - **The user sets the tab scope:** only the tabs agents open (the default), or every web tab. An agent cannot change it.
 
 ## Consequences
 
+- While Chrome runs with the extension, any program running as the same OS user can drive the signed-in Chrome
+  through the host's socket: the socket keeps other users out, not other programs of the same user. This is the threat
+  Chrome 136 closed for the default profile, accepted here; the yellow bar below is what shows it happening.
 - While an agent is attached, Chrome shows its yellow bar saying the flaneur extension is debugging the browser. It
   appears once and shrinks the window's content by its height, which a page sees as any window resize. "Cancel" on the
   bar detaches the debugger, which a client sees as its session on the tab ending.
@@ -94,6 +96,6 @@ The thin extension, reached through a native messaging host.
   build gets the same ID ([`docs/publishing-extension.md`](../publishing-extension.md)).
 - The automated tests run on Chrome for Testing, which accepts `--load-extension`; regular Chrome 137+ does not, and no
   test has run on regular Google Chrome with a window. **Before the first release with this mode, check it by hand on
-  regular Google Chrome with a window:** install the extension, allow agents, run `flaneur --chrome own`, open a page
+  regular Google Chrome with a window:** install the extension, run `flaneur --chrome own`, open a page
   through agent-browser in a covered agent window, and confirm `navigator.webdriver` is `false`, the page is `visible`
   and `Target.activateTarget` brings the window to the front.

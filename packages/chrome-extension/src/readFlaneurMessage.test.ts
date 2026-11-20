@@ -26,7 +26,7 @@ test('reads the operations of the protocol', () => {
 test('refuses anything else the native host sends', () => {
     const refused: unknown[] = [
         // Not operations: nothing but the options page changes the settings.
-        { type: 'settings.set', id: 1, allowAgents: true },
+        { type: 'settings.set', id: 1, scope: 'all' },
         { type: 'scripting.executeScript', id: 1, targetId: 'T1' },
         // Operations with missing or wrong fields.
         { type: 'tabs.list' },

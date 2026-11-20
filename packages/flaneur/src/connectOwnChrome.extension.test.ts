@@ -53,20 +53,20 @@ afterEach(async () => {
     }
 });
 
-test('with agents not allowed in the extension, gives up after the time limit saying what to do', async () => {
+test('with no flaneur extension in Chrome, gives up after the time limit saying what to do', async () => {
     const pages = servePages();
-    const chrome = await startChrome({ settings: { allowAgents: false, scope: 'agent' }, url: pages.url('user') });
-    // Chrome has started, and with it the extension, which would have connected by now if allowed.
+    const chrome = await startChrome({ url: pages.url('user') });
+    // Chrome has started; an extension would have connected by now.
     await chrome.whenStarted(pages, 'user');
 
     await expect(chrome.connect(5000)).rejects.toThrow(
-        /did not connect to flaneur within 5 s\. Install the flaneur extension \(https:\/\/\S+\) and switch on "Allow agents/,
+        /did not connect to flaneur within 5 s: the flaneur extension is not installed or not running in this Chrome\. Install it from https:\/\/\S+\./,
     );
 }, 60_000);
 
 test('drives agent tabs unseen and visible in the background, sees only the tabs its scope allows, and leaves every tab open and detached when it closes', async () => {
     const pages = servePages();
-    const chrome = await startChrome({ settings: { allowAgents: true, scope: 'all' }, url: pages.url('user-a') });
+    const chrome = await startChrome({ settings: { scope: 'all' }, url: pages.url('user-a') });
     await chrome.whenStarted(pages, 'user-a');
 
     // Scope "all": the user's tabs, open before the session and opened during it.
@@ -139,7 +139,7 @@ test('drives agent tabs unseen and visible in the background, sees only the tabs
 
     // Scope "agent tabs only", on the extension's next connection, which its 30 s retry makes: the tabs of the last
     // session are the user's now.
-    await chrome.setSettings({ allowAgents: true, scope: 'agent' });
+    await chrome.setSettings({ scope: 'agent' });
     const second = await chrome.connect(RECONNECT_TIMEOUT_MS);
     await second.cdp.send('Target.setDiscoverTargets', { discover: true });
     const listed = readTargets(await second.cdp.send('Target.getTargets', {}));
@@ -279,21 +279,21 @@ function readReport(value: unknown): PageReport | undefined {
 
 /** What the extension starts with: its settings before the user changes any. */
 interface ExtensionDefaults {
-    allowAgents: boolean;
     scope: 'agent' | 'all';
 }
 
 type TestPages = ReturnType<typeof servePages>;
 
 interface StartChromeOptions {
-    settings: ExtensionDefaults;
+    /** The extension's defaults; without them, Chrome starts with no flaneur extension. */
+    settings?: ExtensionDefaults;
     /** The user's tab Chrome opens with. */
     url: string;
 }
 
 /**
  * Chrome for Testing with a window and a fresh profile, the extension loaded from a copy with `settings` as its
- * defaults, and the native host registered before Chrome starts: the extension connects at startup, and then only
+ * defaults (none without them), and the native host registered before Chrome starts: the extension connects at startup, and then only
  * every 30 s.
  */
 async function startChrome(options: StartChromeOptions) {
@@ -302,8 +302,10 @@ async function startChrome(options: StartChromeOptions) {
     const dataDir = path.join(tempDir, 'data');
     const profileDir = path.join(tempDir, 'profile');
     const extensionDir = path.join(tempDir, 'extension');
-    await copyExtension(extensionDir);
-    await setSettings(options.settings);
+    if (options.settings) {
+        await copyExtension(extensionDir);
+        await setSettings(options.settings);
+    }
 
     for (const registryKey of process.platform === 'win32' ? REGISTRY_KEYS : [undefined]) {
         await registerNativeHost({ dataDir, chromeUserDataDir: profileDir, registryKey });
@@ -316,7 +318,7 @@ async function startChrome(options: StartChromeOptions) {
         [
             chromium.executablePath(),
             ...getChromeArgs(profileDir),
-            `--load-extension=${extensionDir}`,
+            ...(options.settings ? [`--load-extension=${extensionDir}`] : []),
             '--no-default-browser-check',
             options.url,
         ],

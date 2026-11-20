@@ -5,8 +5,6 @@ export type TabScopeKind = 'agent' | 'all';
 
 /** What the user set on the options page; the options page is the only writer. */
 export interface ExtensionSettings {
-    /** Off: the extension never connects to flaneur. */
-    allowAgents: boolean;
     scope: TabScopeKind;
 }
 
@@ -16,17 +14,14 @@ export interface ExtensionSettings {
  */
 export async function readSettings(): Promise<ExtensionSettings> {
     const response = await fetch(chrome.runtime.getURL('defaults.json'));
-    const defaults = parseSettings(await response.json(), { allowAgents: false, scope: 'agent' });
-    return parseSettings(await chrome.storage.local.get(['allowAgents', 'scope']), defaults);
+    const defaults = parseSettings(await response.json(), { scope: 'agent' });
+    return parseSettings(await chrome.storage.local.get(['scope']), defaults);
 }
 
 function parseSettings(value: unknown, fallback: ExtensionSettings): ExtensionSettings {
     if (!isPlainObject(value)) {
         return fallback;
     }
-    const { allowAgents, scope } = value;
-    return {
-        allowAgents: typeof allowAgents === 'boolean' ? allowAgents : fallback.allowAgents,
-        scope: scope === 'agent' || scope === 'all' ? scope : fallback.scope,
-    };
+    const { scope } = value;
+    return { scope: scope === 'agent' || scope === 'all' ? scope : fallback.scope };
 }

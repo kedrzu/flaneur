@@ -34,8 +34,9 @@ FLANEUR="$(head -n1 /tmp/flaneur.endpoint)"
   their running Chrome through the flaneur extension, in a window of its own; your tabs stay open for them afterwards.
   It takes no `--vpn`, `--user-data-dir` or Chrome arguments. Never pick it on your own: it acts as the user, on their
   real accounts.
-- **When `--chrome own` fails**, `/tmp/flaneur.log` says why. Not connected within 45 s: tell the user to install the
-  flaneur extension and switch on "Allow agents to use this Chrome" in its options (click its icon), then start again.
+- **When `--chrome own` fails**, `/tmp/flaneur.log` says why. Not connected within 45 s: the flaneur extension is not
+  installed or not running in their Chrome: tell the user to install it (the log gives the link) or turn it on in
+  `chrome://extensions`, then start again.
   "Another flaneur is already using your Chrome": stop the other one first. A protocol version mismatch names what to
   update. Never fall back to the separate profile silently: tell the user and ask.
 - Reuse one browser for the whole task; start a second only after the first exited (check `/tmp/flaneur.log`).

@@ -42,8 +42,8 @@ The native messaging host admits one extension ID only, so the unpacked build mu
 ### 4. Store listing
 
 - **Description:** what the options page says. flaneur lets AI agents running on this computer browse in this
-  Chrome, signed in to the sites the user is signed in to; nothing happens until the user switches on "Allow agents to
-  use this Chrome", and by default agents see only the tabs they open, in a window of their own.
+  Chrome, signed in to the sites the user is signed in to; by default agents see only the tabs they open, in a window
+  of their own.
 - **Icons:** `packages/chrome-extension/icons/` (16 to 128 px); larger renders of the signet are in `docs/brand/png/`.
 - **Screenshots:** the options page, and the agent window with a page an agent opened, the yellow debugging bar
   showing.
@@ -57,8 +57,8 @@ Justify each permission:
 - `debugger`: drives the tabs an AI agent opens, at the user's request.
 - `tabs`: opens and lists tabs in the agent window.
 - `nativeMessaging`: talks to the flaneur program on this computer.
-- `storage`: keeps the user's two settings.
-- `alarms`: retries the connection while agents are allowed.
+- `storage`: keeps the user's setting of which tabs agents see.
+- `alarms`: retries the connection while no flaneur is connected.
 
 Data use: no data leaves the computer through the extension, and nothing is collected; tick no data category and
 certify the disclosures.

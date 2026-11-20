@@ -28,11 +28,11 @@ afterEach(async () => {
     }
 });
 
-test('with no extension in time, says how to install it and allow agents', async () => {
+test('with no extension in time, says where to install it', async () => {
     const options = await createOptions();
 
     await expect(connectOwnChrome({ ...options, timeoutMs: 500 })).rejects.toThrow(
-        /Install the flaneur extension \(https:\/\/\S+\) and switch on "Allow agents/,
+        /the flaneur extension is not installed or not running in this Chrome\. Install it from https:\/\/\S+\./,
     );
 });
 

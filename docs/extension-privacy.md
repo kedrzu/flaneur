@@ -7,10 +7,11 @@ sends nothing anywhere.
   its options) and, while an agent drives one of them, what Chrome's debugger reports about that tab.
 - **Where that goes:** only to the flaneur program on the same computer, over Chrome's native messaging. The
   extension makes no network requests of its own and has no server.
-- **What it stores:** your two settings (whether agents may connect, and which tabs they see), in Chrome's local
-  extension storage on your computer.
-- **Who can use it:** nobody, until you switch on "Allow agents to use this Chrome" in its options. Switching it off
-  disconnects any agent at once.
+- **What it stores:** your one setting (which tabs agents see), in Chrome's local extension storage on your
+  computer.
+- **Who can use it:** flaneur, run by you or by any program running as your user on this computer, whenever Chrome
+  runs with the extension: installing it is the consent. Chrome shows its yellow debugging bar while an agent drives a
+  tab. To stop it, turn off or remove the extension in `chrome://extensions`.
 
 What an agent does with the pages it browses is up to the agent and the program running it, not the extension.
 

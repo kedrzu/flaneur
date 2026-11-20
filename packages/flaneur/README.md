@@ -101,13 +101,14 @@ Once, in Chrome:
 
 1. Install the extension. Until it is on the Chrome Web Store: `bun run build` in a clone of this repo, then in
    `chrome://extensions` switch on Developer mode, **Load unpacked** and pick `packages/chrome-extension`.
-2. In the extension's options (click its icon), switch on **Allow agents to use this Chrome**. It is off by default,
-   and while it is off no agent can connect.
-3. Choose which tabs agents can use: **only tabs the agent opens** (the default) or **all my tabs**. Changing either
-   setting disconnects a connected agent.
+2. Optionally, in the extension's options (click its icon), choose which tabs agents can use: **only tabs the agent
+   opens** (the default) or **all my tabs**. Changing it disconnects a connected agent, which connects again with the
+   new choice.
+
+Installing the extension is the consent: it connects to flaneur whenever Chrome runs.
 
 When Chrome is not running, the CLI starts it, without flags, and waits 45 s for the extension; without it, it exits
-with code 1 and says what to switch on. The extension's icon shows `ON` while an agent is connected.
+with code 1 and says where to install the extension. The extension's icon shows `ON` while an agent is connected.
 
 - **A window of its own:** the agent's tabs open in one agent window, created without focus, so your window keeps it.
   They still read as visible and focused. `Target.activateTarget` and `Page.bringToFront` activate the tab and bring
@@ -122,7 +123,7 @@ with code 1 and says what to switch on. The extension's icon shows `ON` while an
   connect is the one driven.
 - **The yellow bar:** while the extension is attached, Chrome shows a bar saying flaneur is debugging the browser. It
   shrinks the window's content once, as any window resize does. **Cancel** on it detaches the agent from its tabs.
-- **Exit:** code 1 when Chrome closes, the extension is switched off or reloaded, or agents are no longer allowed.
+- **Exit:** code 1 when Chrome closes, or the extension is turned off, removed or reloaded.
 
 How it works: the extension drives tabs through `chrome.debugger` and talks to a native messaging host, a small
 script Chrome starts. On each start the CLI copies the host into `own-chrome/` of its app data folder and registers it
@@ -132,9 +133,10 @@ reaches tabs only, so the browser-level `Target.*` and `Browser.*` methods are e
 same proxy as a launched Chrome.
 
 Security: the socket lives in a folder only you may enter (`0700`; on Windows a named pipe the host stays silent on
-until the client speaks), which keeps other users out but not other programs you run. That is the threat for which
-Chrome 136 stopped debugging switches on your own profile, so the toggle is the guard: leave **Allow agents** off
-when you are not using it. Why it is built this way: [`docs/decisions/own-chrome.md`](../../docs/decisions/own-chrome.md).
+until the client speaks), which keeps other users out but not other programs you run: while Chrome runs with the
+extension, any program running as you can drive your signed-in Chrome. That is the threat for which Chrome 136 stopped
+debugging switches on your own profile; the yellow bar shows when it happens. Remove or turn off the extension in
+`chrome://extensions` when you do not want it. Why it is built this way: [`docs/decisions/own-chrome.md`](../../docs/decisions/own-chrome.md).
 
 ### With agent-browser
 

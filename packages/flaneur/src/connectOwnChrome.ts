@@ -54,7 +54,7 @@ const execFileAsync = promisify(execFile);
  * the extension to start it (starting Chrome when it is not running), and resolves once the extension has greeted
  * flaneur. The browser keeps its own name; it is gone (`exited`) when the extension or Chrome goes away.
  *
- * Rejects when the extension does not connect within `timeoutMs`, saying how to install it and allow agents, and
+ * Rejects when the extension does not connect within `timeoutMs`, saying where to install it, and
  * when another flaneur already uses this Chrome.
  */
 export async function connectOwnChrome<D = unknown>(options: ConnectOwnChromeOptions<D>): Promise<StealthBrowser<D>> {
@@ -106,8 +106,8 @@ async function waitForHost<D>(address: string, options: ConnectOwnChromeOptions<
         const elapsed = Date.now() - started;
         if (elapsed >= timeoutMs) {
             throw new Error(
-                `Your Chrome did not connect to flaneur within ${Math.round(timeoutMs / 1000)} s. Install the flaneur ` +
-                    `extension (${EXTENSION_URL}) and switch on "Allow agents to use this Chrome" in its options.`,
+                `Your Chrome did not connect to flaneur within ${Math.round(timeoutMs / 1000)} s: the flaneur extension ` +
+                    `is not installed or not running in this Chrome. Install it from ${EXTENSION_URL}.`,
             );
         }
         if (!launched && options.launchChrome !== false && elapsed >= LAUNCH_AFTER_MS) {

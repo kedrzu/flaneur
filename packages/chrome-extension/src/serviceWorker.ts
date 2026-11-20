@@ -34,7 +34,7 @@ interface Connection {
 
 /** The native messaging host flaneur registers. */
 const NATIVE_HOST = 'com.flaneur.own_chrome';
-/** Retries the connection while agents are allowed: `chrome.alarms` allows no shorter period than 30 s. */
+/** Retries the connection while no port is open: `chrome.alarms` allows no shorter period than 30 s. */
 const RECONNECT_ALARM = 'reconnect';
 const RECONNECT_MINUTES = 0.5;
 /** CDP: the parameters are wrong, here an unknown target. */
@@ -70,7 +70,7 @@ chrome.debugger.onDetach.addListener(onDebuggerDetach);
 // A worker started any other way (the extension enabled again) connects too; a second call meanwhile does nothing.
 void connect();
 
-/** Opens the port to flaneur when the user allows agents and none is open; otherwise stops the retries. */
+/** Opens the port to flaneur when none is open, and keeps the alarm that retries it. */
 async function connect(): Promise<void> {
     if (connection || connecting) {
         return;
@@ -85,10 +85,6 @@ async function connect(): Promise<void> {
     }
     if (generation !== settingsGeneration) {
         return connect();
-    }
-    if (!settings.allowAgents) {
-        await chrome.alarms.clear(RECONNECT_ALARM);
-        return;
     }
     open(settings.scope);
     // Once a port is open the alarm finds it and does nothing; it retries after the port closes.
@@ -137,9 +133,9 @@ function end(current: Connection) {
     }
 }
 
-/** Any change to the settings drops the connection; flaneur connects again and sees the new scope. */
+/** A scope change drops the connection; flaneur connects again and sees the new scope. */
 function onSettingsChanged(changes: Record<string, chrome.storage.StorageChange>, area: string) {
-    if (area !== 'local' || !('allowAgents' in changes || 'scope' in changes)) {
+    if (area !== 'local' || !('scope' in changes)) {
         return;
     }
     settingsGeneration++;
