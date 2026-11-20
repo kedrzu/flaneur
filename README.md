@@ -14,6 +14,9 @@ page as Google Chrome and holds each site to a human pace. Sites see a person br
 With `--vpn <region>` it browses from another country: only the browser goes through a VPN tunnel in Docker, the rest
 of the computer stays on its own network.
 
+With `--chrome own` it drives the Chrome you browse with instead, signed in as you are, through a Chrome extension you
+install and allow once: [your own Chrome](packages/flaneur/README.md#your-own-chrome).
+
 Runs on Node.js 22+ and Bun.
 
 ## Quick start

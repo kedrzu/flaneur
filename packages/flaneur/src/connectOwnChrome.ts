@@ -38,7 +38,7 @@ export interface ConnectOwnChromeOptions<D = unknown> {
 }
 
 /** Where to get the extension and what to switch on, for the error when it does not connect. */
-const EXTENSION_URL = 'https://github.com/kedrzu/flaneur#own-chrome';
+const EXTENSION_URL = 'https://github.com/kedrzu/flaneur/blob/main/packages/flaneur/README.md#your-own-chrome';
 const TIMEOUT_MS = 45_000;
 /** How long the extension of a running Chrome gets before Chrome is taken for not running. */
 const LAUNCH_AFTER_MS = 3000;
