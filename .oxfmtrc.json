@@ -23,6 +23,14 @@
             "options": {
                 "tabWidth": 2
             }
+        },
+        {
+            // Claude Code rewrites the file with 2-space JSON whenever it changes a project setting (a
+            // plugin install, enable or disable); any other indent turns each such write into a diff.
+            "files": [".claude/settings.json"],
+            "options": {
+                "tabWidth": 2
+            }
         }
     ]
 }

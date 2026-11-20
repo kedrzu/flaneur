@@ -57,7 +57,9 @@ const READ_IDENTITY = `navigator.userAgentData
  * service workers), so a client resuming its own session early starts nothing ahead of the brand. The override lives
  * as long as the proxy's session: an override is per session and goes when its session detaches, and the most recent
  * one of the sessions still attached wins, which is why clients must not set one of their own. Nothing runs in a page
- * for it: no domain is enabled, no script is added.
+ * for it: no domain is enabled, no script is added. The same session keeps each page focused
+ * (`Emulation.setFocusEmulationEnabled`): pages open in background windows, whose `document.hasFocus()` would otherwise
+ * be `false` while the agent clicks and types in them.
  * @__NO_SIDE_EFFECTS__
  */
 export function createBrandOverride(params: CreateBrandOverrideParams): BrandOverride {
@@ -92,6 +94,9 @@ export function createBrandOverride(params: CreateBrandOverrideParams): BrandOve
 
         if (override != null && BRANDED_TYPES.has(info.type)) {
             brandings.set(info.targetId, sendOnSession('Emulation.setUserAgentOverride', override, sessionId));
+            if (info.type === 'page') {
+                void sendOnSession('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId);
+            }
             void sendOnSession('Target.setAutoAttach', HOLD_NEW_TARGETS, sessionId);
             void sendOnSession('Runtime.runIfWaitingForDebugger', {}, sessionId);
         } else {

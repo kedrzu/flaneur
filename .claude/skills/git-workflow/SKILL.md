@@ -177,4 +177,9 @@ Only on the owner's word — it publishes to npm, which cannot be undone.
    git push origin v<version>
    gh run list --workflow release.yml --limit 1
    ```
-   The workflow refuses a tag that does not match the package's version.
+   The workflow refuses a tag that does not match the package's version, and skips the publish of a version already on
+   npm.
+
+The first version is the exception: npm sets a trusted publisher only for a package that exists, so the owner runs
+`bash scripts/bootstrapNpm.sh` on their machine, with npm's second factor. It publishes from `origin/main`, sets the
+trusted publisher and pushes the tag; nothing for an agent to run.
