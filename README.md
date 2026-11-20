@@ -1,4 +1,9 @@
-# flaneur
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/lockup-dark.svg">
+    <img alt="flaneur" src="docs/brand/lockup.svg" height="96">
+  </picture>
+</h1>
 
 > *flâneur* (n.): one who strolls the city, watching everything and noticed by no one.
 
