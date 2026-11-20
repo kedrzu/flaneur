@@ -1,6 +1,8 @@
 export { CdpError } from './CdpTypes.js';
 export type { CdpEvent, CdpPolicy, CdpPolicyClient, CdpPolicyResult, CdpRequest, CdpSocket } from './CdpTypes.js';
 export type { CdpClient } from './connectClient.js';
+export { connectOwnChrome } from './connectOwnChrome.js';
+export type { ConnectOwnChromeOptions } from './connectOwnChrome.js';
 export { createSitePace } from './createSitePace.js';
 export type { CreateSitePaceOptions, SitePace, SitePaceClock, SitePaceMessages } from './createSitePace.js';
 export type {
