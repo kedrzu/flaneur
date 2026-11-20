@@ -1,5 +1,5 @@
 {
-    "name": "@flaneur/extension",
+    "name": "@flaneur/chrome-extension",
     "version": "0.1.0",
     "private": true,
     "description": "The Chrome extension that lets flaneur drive the user's own Chrome: tabs and chrome.debugger over native messaging",

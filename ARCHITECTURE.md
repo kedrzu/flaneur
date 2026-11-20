@@ -24,12 +24,12 @@ package.
 - **`@flaneur/eval`** — `packages/eval`, private: measures how detectable flaneur is against a headless control and a
   person (`bun run eval`). Its test shop, `packages/eval/shop`, is static HTML deployed to GitHub Pages by
   `.github/workflows/pages.yml`; it is linted by nothing, since it is untyped browser JS outside the build.
-- **`@flaneur/extension`** — `packages/extension`, private: the Chrome extension behind `--chrome own`, which lets
+- **`@flaneur/chrome-extension`** — `packages/chrome-extension`, private: the Chrome extension behind `--chrome own`, which lets
   flaneur drive the user's own Chrome through `chrome.debugger` over native messaging (the protocol is
   `OwnChromeProtocol.ts` in `flaneur`). `tsgo --build` only checks it; `bun run build` then bundles each entry
   (service worker, options page) into `dist/`, since an extension cannot load a bare `import 'flaneur'`. The package
-  directory is the unpacked extension (`--load-extension=packages/extension`); its manifest carries a development
-  `key`, which fixes the extension ID. `bun run --cwd packages/extension pack` zips it for the Chrome Web Store,
+  directory is the unpacked extension (`--load-extension=packages/chrome-extension`); its manifest carries the Chrome
+  Web Store item's public `key`, so the unpacked build has the store's ID, the one the native host admits. `bun run --cwd packages/chrome-extension pack` zips it for the Chrome Web Store,
   without the key. Its defaults are read from `defaults.json` at run time, so a test loads a copy with its own.
 
 Any later internal package is private and named `@flaneur/<package>` in `packages/<package>`.

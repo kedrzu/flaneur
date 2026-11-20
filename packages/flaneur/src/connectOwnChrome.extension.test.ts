@@ -27,7 +27,7 @@ import { serveBrowser } from './serveBrowser.js';
  * A tab in the background of its window is `hidden` unless focus emulation keeps it `visible`: that is how a page shows
  * whether a debugger with emulation is attached to it.
  */
-const EXTENSION_DIR = path.join(import.meta.dir, '../../extension');
+const EXTENSION_DIR = path.join(import.meta.dir, '../../chrome-extension');
 const HOST_NAME = 'com.flaneur.own_chrome';
 /**
  * Windows: where Chrome for Testing looks for the host is not documented; the host is registered under each candidate.

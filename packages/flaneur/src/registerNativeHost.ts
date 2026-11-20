@@ -24,7 +24,7 @@ export interface NativeHostRegistration {
 }
 
 /** The flaneur extension: the only one the host manifest lets talk to the host. */
-export const OWN_CHROME_EXTENSION_ID = 'jfppphlhkknhkkjedcmmgedlnfneimhh';
+export const OWN_CHROME_EXTENSION_ID = 'goimhkigkmnddobemofljbnlmlgbikcl';
 
 /** The host's name, which the extension's `chrome.runtime.connectNative` asks for. */
 const HOST_NAME = 'com.flaneur.own_chrome';

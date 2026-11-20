@@ -1,6 +1,6 @@
 # Publishing the extension on the Chrome Web Store
 
-The flaneur extension (`packages/extension/`) lets `flaneur --chrome own` drive the user's own Chrome. Until it is on
+The flaneur extension (`packages/chrome-extension/`) lets `flaneur --chrome own` drive the user's own Chrome. Until it is on
 the Chrome Web Store, users load it unpacked. Why it exists and why it is thin:
 [`docs/decisions/own-chrome.md`](decisions/own-chrome.md).
 
@@ -18,10 +18,10 @@ the Chrome Web Store, users load it unpacked. Why it exists and why it is thin:
 
 ```bash
 bun run build
-bun run --cwd packages/extension pack
+bun run --cwd packages/chrome-extension pack
 ```
 
-`pack` prints the zip it wrote: `packages/extension/dist/flaneur-extension-<version>.zip`. It holds only the files the
+`pack` prints the zip it wrote: `packages/chrome-extension/dist/flaneur-chrome-extension-<version>.zip`. It holds only the files the
 extension loads, and its manifest has no `key`: the store refuses one and signs the item with its own.
 
 ### 2. Create the item as a draft
@@ -30,21 +30,21 @@ On the dashboard, **Add new item** and upload the zip. Do not submit yet. The up
 
 ### 3. Give the development build the store's ID
 
-To confirm when creating the draft: the flow below is how the ID is meant to be carried over.
+Done once, on 2026-11-20, for the item `goimhkigkmnddobemofljbnlmlgbikcl`; repeat it only for a new item.
 
 The native messaging host admits one extension ID only, so the unpacked build must have the store's ID too:
 
 1. On the item's **Package** page, copy its public key (**View public key**), without the `-----BEGIN/END PUBLIC
-   KEY-----` lines, into `key` in `packages/extension/manifest.json`.
+   KEY-----` lines, into `key` in `packages/chrome-extension/manifest.json`.
 2. Copy the item's ID into `OWN_CHROME_EXTENSION_ID` (`grep -rn OWN_CHROME_EXTENSION_ID packages/flaneur/src`).
-3. Load `packages/extension` unpacked in `chrome://extensions` and check that it shows the same ID.
+3. Load `packages/chrome-extension` unpacked in `chrome://extensions` and check that it shows the same ID.
 
 ### 4. Store listing
 
 - **Description:** what the options page says. flaneur lets AI agents running on this computer browse in this
   Chrome, signed in to the sites the user is signed in to; nothing happens until the user switches on "Allow agents to
   use this Chrome", and by default agents see only the tabs they open, in a window of their own.
-- **Icons:** `packages/extension/icons/` (16 to 128 px); larger renders of the signet are in `docs/brand/png/`.
+- **Icons:** `packages/chrome-extension/icons/` (16 to 128 px); larger renders of the signet are in `docs/brand/png/`.
 - **Screenshots:** the options page, and the agent window with a page an agent opened, the yellow debugging bar
   showing.
 - **Single purpose:** "Lets AI agents that the user runs on this computer with flaneur browse in this Chrome, in tabs
@@ -78,7 +78,7 @@ The privacy policy URL is the page that says the same,
 
 ## Updates
 
-1. Bump `version` in `packages/extension/manifest.json`; the store refuses a version it already has.
+1. Bump `version` in `packages/chrome-extension/manifest.json`; the store refuses a version it already has.
 2. Build and pack as above, upload the zip on the item's **Package** page and submit it.
 
 `OWN_CHROME_PROTOCOL_VERSION` in `packages/flaneur/src/OwnChromeProtocol.ts` must match between flaneur and the

@@ -1,6 +1,6 @@
 /**
- * Packs the extension for the Chrome Web Store: `dist/flaneur-extension-<version>.zip` with only the files the
- * extension loads, and the manifest without its development `key`, which the store refuses (it signs with its own).
+ * Packs the extension for the Chrome Web Store: `dist/flaneur-chrome-extension-<version>.zip` with only the files the
+ * extension loads, and the manifest without its `key`, which the store refuses in an upload (it holds the key itself).
  * Run after `bundle` (`bun run pack` does both).
  */
 import { execFileSync } from 'node:child_process';
@@ -29,7 +29,7 @@ if (!isPlainObject(manifest) || typeof manifest['version'] !== 'string') {
 }
 delete manifest['key'];
 
-const stage = await mkdtemp(path.join(tmpdir(), 'flaneur-extension-'));
+const stage = await mkdtemp(path.join(tmpdir(), 'flaneur-chrome-extension-'));
 try {
     await mkdir(path.join(stage, 'dist'));
     await mkdir(path.join(stage, 'icons'));
@@ -37,7 +37,7 @@ try {
         await copyFile(path.join(root, file), path.join(stage, file));
     }
     await writeFile(path.join(stage, 'manifest.json'), JSON.stringify(manifest, null, 4));
-    const zip = path.join(root, 'dist', `flaneur-extension-${manifest['version']}.zip`);
+    const zip = path.join(root, 'dist', `flaneur-chrome-extension-${manifest['version']}.zip`);
     await rm(zip, { force: true });
     execFileSync('zip', ['-r', '-X', zip, '.'], { cwd: stage, stdio: 'ignore' });
     console.log(zip);

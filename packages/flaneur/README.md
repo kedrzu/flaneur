@@ -100,7 +100,7 @@ npx flaneur --chrome own
 Once, in Chrome:
 
 1. Install the extension. Until it is on the Chrome Web Store: `bun run build` in a clone of this repo, then in
-   `chrome://extensions` switch on Developer mode, **Load unpacked** and pick `packages/extension`.
+   `chrome://extensions` switch on Developer mode, **Load unpacked** and pick `packages/chrome-extension`.
 2. In the extension's options (click its icon), switch on **Allow agents to use this Chrome**. It is off by default,
    and while it is off no agent can connect.
 3. Choose which tabs agents can use: **only tabs the agent opens** (the default) or **all my tabs**. Changing either

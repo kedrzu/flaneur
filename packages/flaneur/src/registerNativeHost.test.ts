@@ -29,7 +29,7 @@ test('writes a manifest in Chrome’s user data folder that lets only the flaneu
         name: 'com.flaneur.own_chrome',
         path: launcherPath,
         type: 'stdio',
-        allowed_origins: ['chrome-extension://jfppphlhkknhkkjedcmmgedlnfneimhh/'],
+        allowed_origins: ['chrome-extension://goimhkigkmnddobemofljbnlmlgbikcl/'],
     });
     // Chrome starts it without the user's PATH: the runtime is named in full.
     expect(await readFile(launcherPath, 'utf8')).toContain(`exec '${process.execPath}' `);

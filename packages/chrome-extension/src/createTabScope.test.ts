@@ -27,7 +27,7 @@ test('with scope all, flaneur sees every web tab and none of Chrome or extension
     expect(scope.includes(createTab({ id: 3, url: 'about:blank' }))).toBe(true);
     expect(scope.includes(createTab({ id: 4, url: 'chrome://newtab/' }))).toBe(false);
     expect(
-        scope.includes(createTab({ id: 5, url: 'chrome-extension://jfppphlhkknhkkjedcmmgedlnfneimhh/options.html' })),
+        scope.includes(createTab({ id: 5, url: 'chrome-extension://goimhkigkmnddobemofljbnlmlgbikcl/options.html' })),
     ).toBe(false);
     expect(scope.includes(createTab({ id: 6, url: 'devtools://devtools/bundled/inspector.html' }))).toBe(false);
 });

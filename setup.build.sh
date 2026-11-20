@@ -30,7 +30,7 @@ step "🛠️ Generating tsconfigs and translations..."
 bun run monorepo
 bun run localise
 
-# TypeScript, then the bundles that make `packages/extension` a loadable extension.
+# TypeScript, then the bundles that make `packages/chrome-extension` a loadable extension.
 step "📝 Building typescript..."
 bun run build
 
