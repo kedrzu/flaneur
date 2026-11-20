@@ -9,15 +9,16 @@ them.
 |File|Use|
 |-|-|
 |`signet.svg`|The primary mark: the walking figure on a rounded tile|
-|`signet-hat.svg`|The small mark: the top hat alone, for 16 px and below|
+|`signet-hat.svg`|The small mark: the top hat alone, for every favicon-sized use|
 |`lockup.svg` / `lockup-dark.svg`|Signet and wordmark side by side, for light and dark backgrounds|
 |`wordmark.svg` / `wordmark-dark.svg`|The name alone, for light and dark backgrounds|
-|`favicon.ico`|The hat at 16 px, the figure at 32 and 48 px|
-|`/favicon.svg`|A link to `signet.svg` at the repo root, where tools that show a project icon look for one|
+|`favicon.ico`|The hat at 16 and 32 px, the figure at 48 px|
+|`/favicon.svg`|A link to `signet-hat.svg` at the repo root, where tools that show a project icon look for one|
 |`png/signet-{32,48,128,512}.png`|The figure, e.g. a Chrome extension's 32, 48 and 128 px icons|
 |`png/signet-hat-{16,32}.png`|The hat, e.g. a Chrome extension's 16 px icon|
 
-The figure reads from 32 px up; below that its cane disappears, so 16 px uses the hat.
+The figure needs room: at 16 px its cane disappears. A favicon shows at 16 px, drawn from the 32 px image on a
+HiDPI screen, so every favicon, the ICO's 16 and 32 px and the root SVG, is the hat; the figure starts at 48 px.
 
 ## Colours
 
