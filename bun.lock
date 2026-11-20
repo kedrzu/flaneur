@@ -669,6 +669,7 @@
       },
       "devDependencies": {
         "@nzyme/ioc-testing": "workspace:*",
+        "@nzyme/pen": "workspace:*",
         "@nzyme/tsconfig": "workspace:*",
         "@types/bun": "^1.4.3",
         "@types/node": "26.6.6",
@@ -1020,6 +1021,7 @@
         "flaneur": "bin/flaneur.js",
       },
       "dependencies": {
+        "@nzyme/cli-core": "workspace:*",
         "@nzyme/ioc": "workspace:*",
         "@nzyme/logging": "workspace:*",
         "@nzyme/utils": "workspace:*",
