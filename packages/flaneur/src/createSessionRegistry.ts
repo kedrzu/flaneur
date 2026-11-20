@@ -32,7 +32,7 @@ export interface SessionRegistry {
     expectAttach(originator: SessionOriginator, targetId: string): () => void;
     /** The group a target belongs to; `undefined` for one no group owns (the proxy's, or unknown). */
     getTargetGroup(targetId: string): string | undefined;
-    /** Every target of a group. */
+    /** Every target of a group, the one used, or claimed, last first. */
     getTargets(group: string): string[];
     /** Who a session's events go to; `undefined` for a session nobody claimed. */
     getSessionOriginator(sessionId: string): SessionOriginator | undefined;
@@ -188,7 +188,7 @@ export function createSessionRegistry(): SessionRegistry {
                 targets.push(targetId);
             }
         }
-        return targets;
+        return targets.toSorted((a, b) => (touchedAt.get(b) ?? 0) - (touchedAt.get(a) ?? 0));
     }
 
     function touch(group: string, targetId: string) {
@@ -198,16 +198,7 @@ export function createSessionRegistry(): SessionRegistry {
     }
 
     function lastUsed(group: string) {
-        let latest: string | undefined;
-        let latestAt = -1;
-        for (const targetId of getTargets(group)) {
-            const at = touchedAt.get(targetId) ?? 0;
-            if (at > latestAt) {
-                latest = targetId;
-                latestAt = at;
-            }
-        }
-        return latest;
+        return getTargets(group)[0];
     }
 
     function forgetTarget(targetId: string) {

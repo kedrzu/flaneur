@@ -60,6 +60,10 @@ const METHOD_NOT_FOUND = -32_601;
 const INVALID_PARAMS = -32_602;
 /** CDP: a generic server error. */
 const SERVER_ERROR = -32_000;
+/** The one browser context of the user's Chrome; Playwright detaches a target whose info has none. */
+const BROWSER_CONTEXT_ID = 'own-chrome-context';
+/** The id of the browser target, stable like the one of real Chrome. */
+const BROWSER_TARGET_ID = 'own-chrome-browser';
 /** Never exited as a process: there is none of ours. */
 const NO_EXIT: StealthBrowserExit = { code: null, signal: null };
 
@@ -167,7 +171,11 @@ export async function createOwnChromeConnection(
             case 'Target.getTargets':
                 return { targetInfos: [...tabs.values()].map(toTargetInfo) };
             case 'Target.getTargetInfo':
-                return { targetInfo: toTargetInfo(findTab(params['targetId'])) };
+                // Without a `targetId` it describes the browser itself, which Playwright asks first.
+                return {
+                    targetInfo:
+                        params['targetId'] == null ? toBrowserTargetInfo() : toTargetInfo(findTab(params['targetId'])),
+                };
             case 'Target.createTarget':
                 return createTarget(params['url']);
             case 'Target.closeTarget':
@@ -514,6 +522,17 @@ export async function createOwnChromeConnection(
         return tab;
     }
 
+    function toBrowserTargetInfo() {
+        return {
+            targetId: BROWSER_TARGET_ID,
+            type: 'browser',
+            title: '',
+            url: '',
+            attached: true,
+            canAccessOpener: false,
+        };
+    }
+
     function toTargetInfo(tab: OwnTab) {
         const { targetId, url, title, openerId } = tab.info;
         return {
@@ -523,6 +542,7 @@ export async function createOwnChromeConnection(
             url,
             attached: tab.session?.announced === true,
             canAccessOpener: false,
+            browserContextId: BROWSER_CONTEXT_ID,
             ...(openerId == null ? {} : { openerId }),
         };
     }

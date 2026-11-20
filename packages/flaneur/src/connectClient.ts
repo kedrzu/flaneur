@@ -7,6 +7,8 @@ import type { CdpEvent, CdpPolicy, CdpPolicyClient, CdpRequest, CdpSocket } from
 import { checkStealthRequest } from './checkStealthRequest.js';
 import type { BrandOverride } from './createBrandOverride.js';
 import type { StealthDecision } from './checkStealthRequest.js';
+import { createClientAutoAttach } from './createClientAutoAttach.js';
+import { createExecutionContexts } from './createExecutionContexts.js';
 import { createIsolatedWorlds } from './createIsolatedWorlds.js';
 import type { SessionOriginator, SessionRegistry } from './createSessionRegistry.js';
 import type { SitePaceRun } from './createSitePace.js';
@@ -75,11 +77,19 @@ const TARGET_EVENTS = new Set([
  * sent. Only what belongs to the client is passed back: events of a session go to the client that opened it, target
  * events only for the targets it sees and only once it discovers targets; replies carry the client's own ids. A page a
  * grouped client creates joins its group, and is announced to it, since the browser's own `Target.targetCreated` comes before the claim and is filtered out.
+ * A browser-level `Target.setAutoAttach` never reaches the browser: the proxy attaches the client to the pages it sees
+ * (`createClientAutoAttach`).
  */
 export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
     const { clientId, group, data, socket, send, registry, brand, policy, pace, logger } = params;
     const originator: SessionOriginator = { type: 'client', clientId };
     const worlds = createIsolatedWorlds(send);
+    const contexts = createExecutionContexts(send, sendEvent);
+    const autoAttach = createClientAutoAttach({
+        listPages,
+        attach: attachForClient,
+        logger,
+    });
     const policyClient: CdpPolicyClient<D> = {
         id: clientId,
         group,
@@ -93,11 +103,18 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
     const shownTargets = new Set<string>();
     /** `Target.targetCreated` of unseen targets while a `Target.createTarget` of this client is in flight, by target. */
     const createdWhileCreating = new Map<string, unknown>();
+    /** Each `Target.createTarget` of this client in flight, settled once its reply is ready. */
+    const creations = new Set<Promise<void>>();
     /**
      * Per session (`undefined`: the browser itself), the moment the last command still waiting there is sent: a command
      * whose policy has not answered yet keeps every later command of its session behind it.
      */
     const waiting = new Map<string | undefined, Promise<void>>();
+    /**
+     * Per session, settled once the client has the reply to every command it sent there so far: context events must
+     * reach Playwright after the reply to its `Page.getFrameTree`, which it starts listening for them on.
+     */
+    const replied = new Map<string | undefined, Promise<unknown>>();
     let creating = 0;
     let discovering = false;
     let closed = false;
@@ -128,10 +145,9 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
         }
         closed = true;
         unsubscribe();
+        void autoAttach.set(false);
         for (const sessionId of sessions) {
-            send('Target.detachFromTarget', { sessionId }).catch((error: unknown) => {
-                logger.debug('A client session could not be detached', { error });
-            });
+            detachClientSession(sessionId);
         }
         sessions.clear();
     }
@@ -141,6 +157,10 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
         const before = waiting.get(key);
         const { promise: sent, resolve: markSent } = Promise.withResolvers<void>();
         waiting.set(key, sent);
+        const earlierReplied = replied.get(key);
+        const { promise: answered, resolve: markAnswered } = Promise.withResolvers<void>();
+        const allReplied = Promise.all([earlierReplied, answered]);
+        replied.set(key, allReplied);
         try {
             await before;
             // The socket closed while an earlier command waited: nothing more is sent.
@@ -158,13 +178,18 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
                 return;
             }
             // Runs up to the browser call before the next command of the session is let go.
-            const executed = execute(id, decision);
+            const executed = execute(id, decision, earlierReplied);
             markSent();
             await executed;
         } finally {
             markSent();
+            markAnswered();
             if (waiting.get(key) === sent) {
                 waiting.delete(key);
+            }
+            await allReplied;
+            if (replied.get(key) === allReplied) {
+                replied.delete(key);
             }
         }
     }
@@ -179,7 +204,7 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
             return { type: 'reject', message: checked.reject };
         }
         if (policy == null) {
-            return checkStealthRequest(checked, worlds);
+            return checkStealthRequest(checked, contexts);
         }
 
         let judged;
@@ -200,7 +225,7 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
         if ('reject' in rechecked) {
             return { type: 'reject', message: rechecked.reject };
         }
-        return checkStealthRequest(rechecked, worlds);
+        return checkStealthRequest(rechecked, contexts);
     }
 
     /**
@@ -220,8 +245,7 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
     /**
      * The proxy's own rules, which come before the policy: a session must be one this client opened; a target a
      * `Target.*` method names must be one the client sees (`isVisibleTarget`), a session it names one of its own;
-     * sessions are flat, so every command of a session comes through here; auto-attach is set per session only, as at
-     * the browser it would attach the client to every target.
+     * sessions are flat, so every command of a session comes through here, auto-attach included.
      */
     function checkClientRules(request: CdpRequest): CdpRequest | Refusal {
         const { method, params: requestParams, sessionId } = request;
@@ -241,11 +265,8 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
 
         switch (method) {
             case 'Target.attachToTarget':
-                return { ...request, params: { ...requestParams, flatten: true } };
             case 'Target.setAutoAttach':
-                return sessionId == null
-                    ? { reject: `${method} must be sent on a session of a page` }
-                    : { ...request, params: { ...requestParams, flatten: true } };
+                return { ...request, params: { ...requestParams, flatten: true } };
             case 'Target.detachFromTarget':
                 // By target alone, the browser would pick a session of the target: perhaps someone else's.
                 return namedSession == null ? { reject: `${method}: name a session of your own` } : request;
@@ -256,9 +277,10 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
 
     /**
      * Runs a decision. A let-through command makes its session's target the group's last used before it is sent, so a
-     * popup the command opens, claimed when it appears, comes after it.
+     * popup the command opens, claimed when it appears, comes after it. `Runtime.enable` waits for `earlierReplied`, the
+     * replies to the earlier commands of its session.
      */
-    async function execute(id: number, decision: StealthDecision) {
+    async function execute(id: number, decision: StealthDecision, earlierReplied: Promise<unknown> | undefined) {
         try {
             switch (decision.type) {
                 case 'reply':
@@ -273,7 +295,15 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
                     return;
                 case 'createWorld':
                     touchSession(decision.sessionId);
-                    sendReply(id, await worlds.createClientWorld(decision.sessionId, decision.world));
+                    sendReply(id, await contexts.createWorld(decision.sessionId, decision.world));
+                    return;
+                case 'enableRuntime':
+                    await earlierReplied;
+                    sendReply(id, await contexts.enable(decision.sessionId));
+                    return;
+                case 'disableRuntime':
+                    contexts.disable(decision.sessionId);
+                    sendReply(id, {});
                     return;
                 case 'forward':
                     touchSession(decision.sessionId);
@@ -294,12 +324,21 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
             case 'Target.setDiscoverTargets':
                 // The browser already discovers for the proxy; answered here, replaying what Chrome would replay.
                 return setDiscoverTargets(forwardParams['discover'] === true);
+            case 'Browser.setDownloadBehavior':
+                // Browser-wide: a client's setting would change downloads for every other client and, with
+                // `--chrome own`, for the user's own Chrome. Answered without reaching the browser.
+                return {};
             case 'Target.getTargets':
                 return filterTargets(await send(method, forwardParams));
             case 'Target.createTarget':
                 return createTarget(forwardParams);
             case 'Target.attachToTarget':
                 return attachToTarget(forwardParams);
+            case 'Target.setAutoAttach':
+                // At the browser it would attach the client to every target: emulated, page by page, on its own pages.
+                return sessionId == null
+                    ? autoAttach.set(forwardParams['autoAttach'] === true)
+                    : send(method, forwardParams, sessionId);
             default:
                 return send(method, forwardParams, sessionId);
         }
@@ -340,37 +379,48 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
      * in `Target.createTarget`, the first navigation can commit before the brand reaches the page, whose first script
      * then read the browser's own name in 2 runs of 6. Every page opens in a window of its own, in the background
      * (`BACKGROUND_PAGE`): the person at the computer keeps working, and the page stays visible to its scripts, which a
-     * background tab of a shared window would not be.
+     * background tab of a shared window would not be. With auto-attach on, the client is attached to the page, after
+     * the proxy's navigation, before the reply: Playwright looks the page up as soon as it has the reply.
      */
     async function createTarget(createParams: Record<string, unknown>) {
         const { url } = createParams;
         const opensUrl = typeof url === 'string' && url !== '' && url !== 'about:blank';
+        const { promise: settled, resolve: settle } = Promise.withResolvers<void>();
+        creations.add(settled);
         creating++;
-        let reply: unknown;
         try {
-            reply = await send('Target.createTarget', {
-                ...createParams,
-                ...(opensUrl ? { url: 'about:blank' } : {}),
-                ...BACKGROUND_PAGE,
-            });
-        } finally {
-            creating--;
-        }
-        const targetId = isPlainObject(reply) ? reply['targetId'] : undefined;
-        if (typeof targetId === 'string' && group != null) {
-            registry.claimTarget(group, targetId);
-            const created = createdWhileCreating.get(targetId);
-            if (discovering && isPlainObject(created)) {
-                announceTarget(targetId, created['targetInfo']);
+            let reply: unknown;
+            try {
+                reply = await send('Target.createTarget', {
+                    ...createParams,
+                    ...(opensUrl ? { url: 'about:blank' } : {}),
+                    ...BACKGROUND_PAGE,
+                });
+            } finally {
+                creating--;
             }
+            const targetId = isPlainObject(reply) ? reply['targetId'] : undefined;
+            if (typeof targetId === 'string' && group != null) {
+                registry.claimTarget(group, targetId);
+                const created = createdWhileCreating.get(targetId);
+                if (discovering && isPlainObject(created)) {
+                    announceTarget(targetId, created['targetInfo']);
+                }
+            }
+            if (creating === 0) {
+                createdWhileCreating.clear();
+            }
+            if (typeof targetId === 'string' && opensUrl) {
+                await navigateNewTarget(targetId, url);
+            }
+            if (typeof targetId === 'string') {
+                await autoAttach.attach(targetId);
+            }
+            return reply;
+        } finally {
+            creations.delete(settled);
+            settle();
         }
-        if (creating === 0) {
-            createdWhileCreating.clear();
-        }
-        if (typeof targetId === 'string' && opensUrl) {
-            await navigateNewTarget(targetId, url);
-        }
-        return reply;
     }
 
     /**
@@ -411,9 +461,64 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
         const sessionId = isPlainObject(reply) ? reply['sessionId'] : undefined;
         if (typeof sessionId === 'string') {
             registry.claimSession(originator, sessionId, targetId);
-            sessions.add(sessionId);
+            // An auto-attach can be answered after the socket closed: its session goes at once.
+            if (closed) {
+                detachClientSession(sessionId);
+            } else {
+                sessions.add(sessionId);
+            }
         }
         return reply;
+    }
+
+    /**
+     * An attach the client's auto-attach makes for it, judged as the client's own `Target.attachToTarget` would be: by
+     * the proxy's rules and the policy, whose refusal or answer leaves the page out; what the policy passes must still
+     * be an attach at the browser.
+     */
+    async function attachForClient(targetId: string) {
+        const request: CdpRequest = { method: 'Target.attachToTarget', params: { targetId, flatten: true } };
+        let checked = checkClientRules(request);
+        if (!('reject' in checked) && policy != null) {
+            const judged = await policy(checked, policyClient);
+            if ('reply' in judged) {
+                checked = { reject: `${request.method}: the policy answered it` };
+            } else {
+                checked = 'reject' in judged ? judged : checkClientRules(judged);
+            }
+        }
+        if ('reject' in checked) {
+            throw new CdpError({ code: SERVER_ERROR, message: checked.reject });
+        }
+        if (checked.method !== request.method || checked.sessionId != null) {
+            throw new CdpError({
+                code: SERVER_ERROR,
+                message: `${request.method}: the policy made it another command`,
+            });
+        }
+        await attachToTarget(checked.params);
+    }
+
+    /** The pages the client sees, the one used last first; with no group, in the browser's order. */
+    async function listPages() {
+        if (group != null) {
+            return registry.getTargets(group);
+        }
+        const { targetInfos } = filterTargets(await send('Target.getTargets', {}));
+        const pages: string[] = [];
+        for (const targetInfo of targetInfos) {
+            const info = readTargetInfo({ targetInfo });
+            if (info?.type === 'page') {
+                pages.push(info.targetId);
+            }
+        }
+        return pages;
+    }
+
+    function detachClientSession(sessionId: string) {
+        send('Target.detachFromTarget', { sessionId }).catch((error: unknown) => {
+            logger.debug('A client session could not be detached', { error });
+        });
     }
 
     function onEvent(event: CdpEvent) {
@@ -421,13 +526,15 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
             return;
         }
         const eventParams = isPlainObject(event.params) ? event.params : {};
-        // What the worlds hold for a detached session goes; a nested session's detach comes on its parent session.
+        // What the contexts hold for a detached session goes; a nested session's detach comes on its parent session.
         if (event.method === 'Target.detachedFromTarget' && typeof eventParams['sessionId'] === 'string') {
-            worlds.forget(eventParams['sessionId']);
+            contexts.forget(eventParams['sessionId']);
         }
         if (event.sessionId != null) {
             if (isOwnSession(event.sessionId)) {
-                sendEvent(event);
+                for (const translated of contexts.translate(event)) {
+                    sendEvent(translated);
+                }
             }
             return;
         }
@@ -464,6 +571,9 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
         if (event.method === 'Target.targetCreated' && !isShown && creating > 0) {
             createdWhileCreating.set(targetId, eventParams);
         }
+        if (event.method !== 'Target.targetDestroyed' && isVisibleTarget(targetId)) {
+            attachNewPage(targetId, eventParams);
+        }
         if (!discovering || !isShown) {
             return;
         }
@@ -473,6 +583,17 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
             shownTargets.add(targetId);
         }
         sendEvent(event);
+    }
+
+    /**
+     * Auto-attaches a page that appeared, or joined the group (a popup, another client's page), once the pages this
+     * client is creating are attached, each by its `createTarget`: with `--chrome own`, a page has one session, which
+     * would otherwise be taken before the proxy navigates the page.
+     */
+    function attachNewPage(targetId: string, eventParams: Record<string, unknown>) {
+        if (readTargetInfo(eventParams)?.type === 'page') {
+            void Promise.all(creations).then(() => autoAttach.attach(targetId));
+        }
     }
 
     function announceTarget(targetId: string, targetInfo: unknown) {

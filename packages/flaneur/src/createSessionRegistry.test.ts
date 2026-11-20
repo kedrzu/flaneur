@@ -19,7 +19,7 @@ test('a popup belongs to the group of its opener and becomes its last used', () 
     expect(registry.getTargetGroup('popup-1')).toBe('group-1');
     expect(registry.getTargetGroup('stranger')).toBeUndefined();
     expect(registry.getTargetGroup('blank')).toBeUndefined();
-    expect(registry.getTargets('group-1')).toEqual(['page-1', 'page-2', 'popup-1']);
+    expect(registry.getTargets('group-1')).toEqual(['popup-1', 'page-2', 'page-1']);
     expect(registry.lastUsed('group-1')).toBe('popup-1');
 });
 
@@ -106,7 +106,7 @@ test('detach forgets the session; destroy forgets the target and its sessions', 
     expect(registry.getTargets('group-1')).toEqual(['page-1']);
 });
 
-test('the last used page follows touches and falls back when it is destroyed', () => {
+test('the last used page, and the order of the group, follow touches; destroyed, it falls back', () => {
     const registry = createSessionRegistry();
     registry.claimTarget('group-1', 'page-1');
     registry.claimTarget('group-1', 'page-2');
@@ -116,6 +116,7 @@ test('the last used page follows touches and falls back when it is destroyed', (
     registry.touch('group-1', 'page-1');
     registry.touch('group-1', 'page-3');
     expect(registry.lastUsed('group-1')).toBe('page-1');
+    expect(registry.getTargets('group-1')).toEqual(['page-1', 'page-2']);
 
     registry.observe({ method: 'Target.targetDestroyed', params: { targetId: 'page-1' } });
     expect(registry.lastUsed('group-1')).toBe('page-2');

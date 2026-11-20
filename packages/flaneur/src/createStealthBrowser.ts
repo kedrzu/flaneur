@@ -26,7 +26,7 @@ export interface StealthBrowserExit {
 export interface StealthBrowserGroups {
     /** The group a target belongs to; `undefined` for one no group owns. */
     of(targetId: string): string | undefined;
-    /** Every target of a group. */
+    /** Every target of a group, the one used, or claimed, last first. */
     targets(group: string): string[];
     /** The group's target used, or claimed, last; `undefined` when it has none left. */
     lastUsed(group: string): string | undefined;

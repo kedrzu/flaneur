@@ -47,6 +47,31 @@ test('creates agent tabs, attached with focus emulation, and lists them beside t
     });
 });
 
+test('describes the browser target without a targetId, and every tab info carries the same browserContextId', async () => {
+    const extension = createFakeExtension({ tabs: [USER_TAB] });
+    const core = connectCore(await createOwnChromeConnection(extension.channel, createTestLogger('test').logger));
+
+    const browserInfo = await core.call('Target.getTargetInfo', {});
+    const tabInfo = await core.call('Target.getTargetInfo', { targetId: 'user-1' });
+    const listed = await core.call('Target.getTargets');
+    await core.call('Target.setDiscoverTargets', { discover: true });
+    const created = core.frames.find(frame => frame['method'] === 'Target.targetCreated');
+    const attached = readSessionId(await core.call('Target.attachToTarget', { targetId: 'user-1', flatten: true }));
+    const announced = core.frames.find(frame => frame['method'] === 'Target.attachedToTarget');
+
+    expect(browserInfo).toMatchObject({ id: 1, result: { targetInfo: { type: 'browser' } } });
+    expect(attached).toStartWith('own-session-');
+    const contextIds = [
+        readInfo(tabInfo['result'], 'targetInfo'),
+        readInfo(listed['result'], 'targetInfos'),
+        readInfo(created?.['params'], 'targetInfo'),
+        readInfo(announced?.['params'], 'targetInfo'),
+    ].map(info => info['browserContextId']);
+    expect(contextIds[0]).toBeString();
+    expect(new Set(contextIds).size).toBe(1);
+    expect(tabInfo).toMatchObject({ result: { targetInfo: { targetId: 'user-1', type: 'page', title: 'Example' } } });
+});
+
 test('announces a session before replying to its attach and carries its commands and events', async () => {
     const extension = createFakeExtension();
     const core = connectCore(await createOwnChromeConnection(extension.channel, createTestLogger('test').logger));
@@ -448,4 +473,12 @@ function readSessionId(reply: unknown) {
     const sessionId = isPlainObject(result) ? result['sessionId'] : undefined;
     assert(typeof sessionId === 'string', 'The attach gave no session');
     return sessionId;
+}
+
+/** The first target info in `holder[key]`, which is one or a list of them. */
+function readInfo(holder: unknown, key: string): Record<string, unknown> {
+    const value = isPlainObject(holder) ? holder[key] : undefined;
+    const info: unknown = Array.isArray(value) ? value[0] : value;
+    assert(isPlainObject(info), 'Expected a target info');
+    return info;
 }
