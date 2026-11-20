@@ -43,6 +43,8 @@ const RECONNECT_TIMEOUT_MS = 45_000;
 const SETTLE_MS = 1500;
 /** How long a cold Chrome may take to show its first page; a CI runner's first start is slow. */
 const START_TIMEOUT_MS = 30_000;
+/** Playwright's own timeout here: a hang fails with Playwright's error, well before the test's timeout. */
+const PLAYWRIGHT_TIMEOUT_MS = 10_000;
 
 const execFileAsync = promisify(execFile);
 const cleanups: (() => Promise<unknown> | void)[] = [];
@@ -156,6 +158,71 @@ test('drives agent tabs unseen and visible in the background, sees only the tabs
     await expect(attach(second.cdp, agent2)).rejects.toThrow(/No target with given id found/);
 }, 120_000);
 
+test('stock Playwright drives agent tabs: locators, fill, evaluate, screenshot, ariaSnapshot, route, popup and frames', async () => {
+    const pages = servePages();
+    const chrome = await startChrome({ settings: { scope: 'agent' }, url: pages.url('user') });
+    await chrome.whenStarted(pages, 'user');
+    const server = await chrome.serve();
+
+    const browser = await chromium.connectOverCDP(server.endpoint);
+    try {
+        const context = browser.contexts()[0];
+        assert(context, 'connectOverCDP gives the default context');
+        context.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS);
+        // Scope "agent": the user's tab is not the client's.
+        expect(context.pages()).toEqual([]);
+
+        const page = await context.newPage();
+        await page.goto(pages.home());
+
+        await page.getByLabel('Name').fill('Ada');
+        await page.getByRole('button', { name: 'Greet' }).click();
+        expect(await page.locator('#greeting').textContent()).toBe('Hello, Ada');
+        expect(await page.evaluate("document.querySelectorAll('button').length")).toBe(3);
+
+        const screenshot = await page.screenshot();
+        expect(screenshot.subarray(1, 4).toString('ascii')).toBe('PNG');
+        expect(await page.locator('h1').ariaSnapshot()).toBe('- heading "Home" [level=1]');
+
+        await page.route('**/api/data', route => route.fulfill({ body: 'intercepted' }));
+        await page.getByRole('button', { name: 'Load data' }).click();
+        await page.locator('#data', { hasText: 'intercepted' }).waitFor();
+
+        const [popup, fromContext] = await Promise.all([
+            page.waitForEvent('popup'),
+            context.waitForEvent('page'),
+            page.getByRole('button', { name: 'Open popup' }).click(),
+        ]);
+        expect(fromContext).toBe(popup);
+        await popup.waitForLoadState();
+        expect(await popup.locator('h1').textContent()).toBe('Popup');
+        await popup.close();
+
+        const crossOrigin = page.frameLocator('#cross');
+        await crossOrigin.getByRole('button', { name: 'Frame button' }).click();
+        expect(await crossOrigin.locator('button').textContent()).toBe('Clicked in frame');
+
+        const written = page.frameLocator('#written');
+        await written.getByRole('button', { name: 'Written' }).click();
+        expect(await written.locator('button').textContent()).toBe('Clicked');
+    } finally {
+        await browser.close();
+    }
+
+    // The page outlives the script, and the next one drives it: the first one's session is gone from the tab.
+    const next = await chromium.connectOverCDP(server.endpoint);
+    try {
+        const page = next
+            .contexts()[0]
+            ?.pages()
+            .find(candidate => candidate.url() === pages.home());
+        assert(page, "The first script's page is still open");
+        expect(await page.evaluate('document.title')).toBe('Home');
+    } finally {
+        await next.close();
+    }
+}, 60_000);
+
 /** Pages that report their state to the test: visibility, `navigator.webdriver`, trusted clicks, the DOM and globals. */
 function servePages() {
     const reports: PageReport[] = [];
@@ -167,6 +234,13 @@ function servePages() {
             const page = url.searchParams.get('id');
             if (url.pathname === '/page' && page != null && /^[\w-]+$/.test(page)) {
                 return new Response(renderPage(page), { headers: { 'content-type': 'text/html' } });
+            }
+            const playwrightPage = renderPlaywrightPage(url);
+            if (playwrightPage != null) {
+                return new Response(playwrightPage, { headers: { 'content-type': 'text/html' } });
+            }
+            if (url.pathname === '/api/data') {
+                return new Response('real data');
             }
             if (url.pathname === '/report' && request.method === 'POST') {
                 const report = readReport(await request.json());
@@ -182,6 +256,8 @@ function servePages() {
 
     return {
         url: (page: string) => `http://127.0.0.1:${server.port}/page?id=${page}`,
+        /** The page Playwright drives; its frame comes from `localhost`, another site. */
+        home: () => `http://127.0.0.1:${server.port}/home`,
         next,
         settle,
     };
@@ -258,6 +334,34 @@ function report() {
 </script>`;
 }
 
+/** The pages of the Playwright scenario, as `playwright.test.ts` serves them; `undefined` for any other path. */
+function renderPlaywrightPage(url: URL) {
+    switch (url.pathname) {
+        case '/home':
+            return `<!doctype html><title>Home</title><h1>Home</h1>
+<label>Name <input id="name"></label>
+<button onclick="greeting.textContent = 'Hello, ' + document.getElementById('name').value">Greet</button>
+<p id="greeting"></p>
+<button onclick="fetch('/api/data').then(r => r.text()).then(t => { data.textContent = t; })">Load data</button>
+<p id="data"></p>
+<button onclick="window.open('/popup')">Open popup</button>
+<iframe id="cross" src="http://localhost:${url.port}/frame"></iframe>
+<iframe id="written"></iframe>
+<script>
+const written = document.getElementById('written').contentDocument;
+written.open();
+written.write('<button onclick="this.textContent = \\'Clicked\\'">Written</button>');
+written.close();
+</script>`;
+        case '/popup':
+            return '<!doctype html><title>Popup</title><h1>Popup</h1>';
+        case '/frame':
+            return `<!doctype html><button onclick="this.textContent = 'Clicked in frame'">Frame button</button>`;
+        default:
+            return undefined;
+    }
+}
+
 function readReport(value: unknown): PageReport | undefined {
     if (!isPlainObject(value)) {
         return undefined;
@@ -329,7 +433,7 @@ async function startChrome(options: StartChromeOptions) {
         await chrome.exited;
     });
 
-    return { connect, setSettings, openTab, whenStarted };
+    return { connect, serve, setSettings, openTab, whenStarted };
 
     /** Waits for the first page Chrome opens; a Chrome that never shows it fails the test with the end of its log. */
     async function whenStarted(pages: TestPages, page: string) {
@@ -345,6 +449,13 @@ async function startChrome(options: StartChromeOptions) {
 
     /** Connects flaneur once the extension has, and serves it to a raw CDP client. */
     async function connect(timeoutMs = 10_000) {
+        const server = await serve(timeoutMs);
+        const cdp = await connectCdp(server.endpoint);
+        return { server, cdp };
+    }
+
+    /** Connects flaneur once the extension has, and serves it on a local endpoint. */
+    async function serve(timeoutMs = 10_000) {
         const { logger } = createTestLogger('OwnChrome');
         const browser = await connectOwnChrome({
             dataDir,
@@ -356,8 +467,7 @@ async function startChrome(options: StartChromeOptions) {
         });
         const server = await serveBrowser(browser, { logger });
         cleanups.push(() => server.close());
-        const cdp = await connectCdp(server.endpoint);
-        return { server, cdp };
+        return server;
     }
 
     /** The extension reads its defaults at each connection, from the folder Chrome loaded it from. */
