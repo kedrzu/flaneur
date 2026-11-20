@@ -99,20 +99,40 @@ key's scores no longer tell a bot from a person and this reading is on hold unti
 Account bans: they come late, hit a whole account, and cannot be tested on a real one. flaneur guards against them by
 rule instead, chiefly the human pace.
 
-## For Claude Code
+## For AI agents
 
-The repo is a plugin marketplace with one plugin: a `flaneur` skill that teaches the agent to start the browser, drive
-it with agent-browser and behave like a person on the sites it visits.
+The `flaneur` skill teaches an agent to start the browser, drive it with agent-browser and behave like a person on the
+sites it visits.
+
+**Claude Code:** the repo is a plugin marketplace with one plugin.
 
 ```text
 /plugin marketplace add kedrzu/flaneur
 /plugin install flaneur@flaneur
 ```
 
+**Codex:** it reads the same marketplace.
+
+```bash
+codex plugin marketplace add kedrzu/flaneur
+codex plugin add flaneur@flaneur
+```
+
+The browser needs the network and starts Chrome, which Codex's sandbox blocks: approve its commands when Codex asks to
+run them outside it.
+
+**OpenCode:** add the skill catalog to `opencode.json`, globally (`~/.config/opencode/opencode.json`) or in a project.
+
+```json
+{
+    "skills": ["https://raw.githubusercontent.com/kedrzu/flaneur/main/plugin/skills/"]
+}
+```
+
 ## Repository
 
 - `packages/flaneur/` — the npm package: library and CLI.
-- `plugin/` — the Claude Code plugin and its skill.
+- `plugin/` — the agent skill, packaged for Claude Code, Codex and OpenCode.
 - `docs/decisions/` — why the API looks as it does.
 - `ARCHITECTURE.md` — how the repo is built.
 

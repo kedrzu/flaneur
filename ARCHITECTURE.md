@@ -36,7 +36,11 @@ Any later internal package is private and named `@flaneur/<package>` in `package
 
 The repo is also a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`) with one plugin in `plugin/`:
 the `flaneur` skill that teaches an agent to run the CLI and drive it with agent-browser. It is not a workspace
-package and is not published to npm; Claude Code installs it from GitHub. Its `version` follows the package's.
+package and is not published to npm; agents install it from GitHub. Codex reads the same Claude Code marketplace and
+manifest, so it has none of its own. OpenCode has no plugin marketplace: `plugin/skills/index.json` makes the skills
+folder an OpenCode skill catalog, fetched from `raw.githubusercontent.com` on `main`. The plugin's `version` and each
+catalog entry's follow the package's (`scripts/pluginVersions.test.ts`); OpenCode refreshes its cached copy only when
+the entry's `version` changes, so the skill reaches OpenCode users with a release.
 
 ## Tooling and workflow
 
