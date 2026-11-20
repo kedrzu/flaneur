@@ -1,9 +1,10 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import { afterEach, expect, test } from 'bun:test';
 
@@ -13,10 +14,16 @@ import { waitUntil } from '@nzyme/utils/waitUntil.js';
 import { registerNativeHost } from './registerNativeHost.js';
 
 /**
- * These tests run the host as Chrome does: the copy `registerNativeHost` writes, started through its launcher, with
- * native messaging frames on its stdio. They need the build (`dist/nativeHost.js`).
+ * These tests run the host as Chrome does: the copy `registerNativeHost` writes, started through its launcher (on
+ * Windows directly), with native messaging frames on its stdio. They need the build (`dist/nativeHost.js`). CI runs them
+ * on Windows too.
  */
 const HELLO = { type: 'hello', version: 1 };
+/** Windows: a key of the test's own, so no Chrome's registration is touched. */
+const TEST_REGISTRY_ROOT = 'HKCU\\Software\\flaneur-test';
+const TEST_REGISTRY_KEY = `${TEST_REGISTRY_ROOT}\\NativeMessagingHosts`;
+
+const execFileAsync = promisify(execFile);
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 
@@ -75,7 +82,8 @@ test('frees its place when a client leaves silent, and exits when a client that 
     expect(existsSync(chrome.address)).toBe(false);
 });
 
-test('takes over the socket a dead host left behind', async () => {
+// POSIX: a named pipe goes with the process that served it, a socket file does not.
+test.skipIf(process.platform === 'win32')('takes over the socket a dead host left behind', async () => {
     const dataDir = await createDataDir();
     const dead = await startHost(dataDir);
     await connectClient(dead.address);
@@ -110,10 +118,21 @@ async function createDataDir() {
 
 /** Registers the host in `dataDir` and starts it as Chrome would, playing Chrome's side of its stdio. */
 async function startHost(dataDir: string) {
-    const { address } = await registerNativeHost({ dataDir, chromeUserDataDir: path.join(dataDir, 'chrome') });
-    const host = spawn(path.join(dataDir, 'own-chrome', 'host.sh'), [], {
-        stdio: ['pipe', 'pipe', 'ignore'],
+    const { address } = await registerNativeHost({
+        dataDir,
+        chromeUserDataDir: path.join(dataDir, 'chrome'),
+        registryKey: TEST_REGISTRY_KEY,
     });
+    if (process.platform === 'win32') {
+        cleanups.push(() => execFileAsync('reg', ['delete', TEST_REGISTRY_ROOT, '/f']).catch(() => {}));
+    }
+    // Windows: the host itself, as its batch launcher would run it; Node starts a batch file only through a shell, whose
+    // kill would leave the host running.
+    const hostDir = path.join(dataDir, 'own-chrome');
+    const host =
+        process.platform === 'win32'
+            ? spawn(process.execPath, [path.join(hostDir, 'nativeHost.mjs')], { stdio: ['pipe', 'pipe', 'ignore'] })
+            : spawn(path.join(hostDir, 'host.sh'), [], { stdio: ['pipe', 'pipe', 'ignore'] });
     const exited = new Promise<number | null>(resolve => {
         host.once('exit', code => resolve(code));
     });

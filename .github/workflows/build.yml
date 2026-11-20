@@ -61,5 +61,42 @@ jobs:
       - name: Format
         run: bun run format:check
 
+      # The own-Chrome tests run Chrome with a window (an extension's focus emulation is what they measure), so on
+      # Linux they need a display.
       - name: Tests
-        run: bun run tests:full
+        run: xvfb-run --auto-servernum bun run tests:full
+
+  # `--chrome own` on Windows: the native host on a named pipe, registered in the registry, and the extension in a real
+  # Chrome for Testing with a window. Not a required check.
+  own-chrome-windows:
+    name: Own Chrome (Windows)
+    runs-on: windows-latest
+    env:
+      CI: 'true'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Setup node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Build
+        run: bash setup.build.sh
+
+      - name: Tests
+        run: >-
+          TZ=UTC bun test --timeout 10000
+          ./packages/flaneur/src/connectOwnChrome.extension.test.ts
+          ./packages/flaneur/src/nativeHost.test.ts
