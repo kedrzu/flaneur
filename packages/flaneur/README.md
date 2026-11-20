@@ -110,7 +110,8 @@ import { createSitePace, launchStealthBrowser, serveStealthBrowser, startVpnTunn
 - `createSitePace()` creates the human pace. Hand the same pace to each launch: what it learned of blocks outlives a
   browser restart.
 - `serveStealthBrowser(options & { port? })` is what the CLI runs: it launches the browser and serves it at a
-  tokenised `127.0.0.1` endpoint, each socket a client with no group. `close()` stops both.
+  tokenised `127.0.0.1` endpoint, each socket a client with no group. `close()` stops both. `serveBrowser(browser,
+  { port?, logger? })` is its serving half, for a browser already started.
 - `proxy: { server, username?, password? }` on a launch sends every request through an HTTP proxy. Chrome takes no
   proxy login on its command line, so the browser answers the proxy's challenges itself over CDP (`Fetch` on the
   browser target, unseen by pages and clients); a client's own `Fetch` on a page keeps working.

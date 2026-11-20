@@ -300,10 +300,6 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
                 return createTarget(forwardParams);
             case 'Target.attachToTarget':
                 return attachToTarget(forwardParams);
-            case 'Page.bringToFront':
-            case 'Target.activateTarget':
-                // Each page has a window of its own, visible without it; activating one would bring Chrome to the front.
-                return {};
             default:
                 return send(method, forwardParams, sessionId);
         }

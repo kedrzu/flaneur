@@ -12,8 +12,9 @@ import { waitUntil } from '@nzyme/utils/waitUntil.js';
 
 import type { CdpSocket } from './CdpTypes.js';
 import { createSitePace } from './createSitePace.js';
+import type { StealthBrowser } from './createStealthBrowser.js';
 import { launchStealthBrowser } from './launchStealthBrowser.js';
-import type { LaunchStealthBrowserOptions, StealthBrowser } from './launchStealthBrowser.js';
+import type { LaunchStealthBrowserOptions } from './launchStealthBrowser.js';
 
 /**
  * These tests drive a real Chromium: Playwright's. It runs headless (no window on a dev Mac, no display on CI) and

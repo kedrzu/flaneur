@@ -10,8 +10,8 @@ import { findChrome } from './findChrome.js';
 import { installChromeForTesting } from './installChromeForTesting.js';
 import { parseChromeOption } from './parseChromeOption.js';
 import type { ChromeOption } from './parseChromeOption.js';
+import type { StealthBrowserServer } from './serveBrowser.js';
 import { serveStealthBrowser } from './serveStealthBrowser.js';
-import type { StealthBrowserServer } from './serveStealthBrowser.js';
 import { startVpnTunnel } from './startVpnTunnel.js';
 
 /** The folder the CLI keeps its profile and Chrome for Testing in. */

@@ -175,21 +175,21 @@ test('a page created with a URL is created blank and navigated by the proxy befo
     expect(registry.getSessionOriginator('s-new')).toEqual({ type: 'proxy' });
 });
 
-test('pages open in background windows of their own, and activating one never reaches the browser', async () => {
+test('pages open in background windows of their own, and activating one is left to the browser connection', async () => {
     const { browser, client } = prepare({});
 
     await client.call('Target.createTarget', { url: 'about:blank', newWindow: false, background: false, width: 800 });
-    const activated = await client.call('Target.activateTarget', { targetId: 't-a' });
-    const broughtToFront = await client.call('Page.bringToFront', {}, 's-a');
+    await client.call('Target.activateTarget', { targetId: 't-a' });
+    await client.call('Page.bringToFront', {}, 's-a');
 
     expect(browser.sent).toEqual([
         {
             method: 'Target.createTarget',
             params: { url: 'about:blank', newWindow: true, background: true, width: 800 },
         },
+        { method: 'Target.activateTarget', params: { targetId: 't-a' } },
+        { method: 'Page.bringToFront', params: {}, sessionId: 's-a' },
     ]);
-    expect(activated['result']).toEqual({});
-    expect(broughtToFront['result']).toEqual({});
 });
 
 test('without a pace, loads of one site go to the browser one right after another', async () => {
