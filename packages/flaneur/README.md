@@ -90,25 +90,44 @@ start. Why the login goes over CDP: [`docs/decisions/vpn-tunnels.md`](../../docs
 
 ### Your own Chrome
 
-`--chrome own` drives the Google Chrome you browse with, signed in to the sites you are signed in to, through the
-flaneur extension. The endpoint, the stealth rules and the pace are the same as with a launched Chrome.
+`--chrome own` drives the browser you browse with, signed in to the sites you are signed in to, through the flaneur
+extension: Google Chrome or any other Chromium browser (Arc, Brave, Edge, Vivaldi, Opera, Chromium). The endpoint, the
+stealth rules and the pace are the same as with a launched Chrome.
 
 ```bash
 npx flaneur --chrome own
 ```
 
-Once, in Chrome:
+Once, in your browser:
 
-1. Install the extension. Until it is on the Chrome Web Store: `bun run build` in a clone of this repo, then in
-   `chrome://extensions` switch on Developer mode, **Load unpacked** and pick `packages/chrome-extension`.
+1. Install the extension. Until it is on the Chrome Web Store: `bun run build` in a clone of this repo, then in the
+   browser's extensions page (`chrome://extensions`) switch on Developer mode, **Load unpacked** and pick
+   `packages/chrome-extension`.
 2. Optionally, in the extension's options (click its icon), choose which tabs agents can use: **only tabs the agent
    opens** (the default) or **all my tabs**. Changing it disconnects a connected agent, which connects again with the
    new choice.
 
-Installing the extension is the consent: it connects to flaneur whenever Chrome runs.
+Installing the extension is the consent: it connects to flaneur whenever the browser runs.
 
-When Chrome is not running, the CLI starts it, without flags, and waits 45 s for the extension; without it, it exits
-with code 1 and says where to install the extension. The extension's icon shows `ON` while an agent is connected.
+flaneur finds your browsers by itself: it registers its native messaging host in every Chromium browser's user data
+folder (a folder with `Local State` and `Default/Extensions`; on Windows, under the registry key derived from it, and
+Google Chrome's and Chromium's), so the extension reaches it from whichever browser it is in. The manifest admits only
+the flaneur extension.
+
+When no browser is connected, the CLI starts the one the extension last connected from, without flags, or Google
+Chrome before the first connection, and waits 45 s for the extension; without it, it exits with code 1 and says where
+to install the extension. The extension's icon shows `ON` while an agent is connected.
+
+A browser flaneur cannot find (a portable one, one started with its own `--user-data-dir`, a Windows browser with a
+registry key of its own) is set up once, by you:
+
+```bash
+npx flaneur setup --browser-data "/path/to/the/browser's/user data"      # macOS, Linux
+npx flaneur setup --registry-key "HKCU\Software\<Vendor>\<Browser>\NativeMessagingHosts"   # Windows
+```
+
+They are kept in `config.json` in flaneur's data folder and used on every later `--chrome own`. `flaneur setup` alone
+registers the host again and prints where, and which browser it remembers.
 
 - **A window of its own:** the agent's tabs open in one agent window, created without focus, so your window keeps it.
   They still read as visible and focused. `Target.activateTarget` and `Page.bringToFront` activate the tab and bring
@@ -119,8 +138,8 @@ with code 1 and says where to install the extension. The extension's icon shows 
 - **Web pages only:** the agent opens and sees `http:`, `https:` and `about:blank` tabs, never Chrome's own pages or
   extensions.
 - **Not in this mode:** `--vpn`, `--user-data-dir` and Chrome arguments after `--`, which all shape a Chrome flaneur
-  starts. One CLI per Chrome: a second gets an error. With the extension in several Chrome profiles, the first to
-  connect is the one driven.
+  starts. One CLI per browser: a second gets an error. With the extension in several browsers or profiles, the first
+  to connect is the one driven.
 - **The yellow bar:** while the extension is attached, Chrome shows a bar saying flaneur is debugging the browser. It
   shrinks the window's content once, as any window resize does. **Cancel** on it detaches the agent from its tabs.
 - **Exit:** code 1 when Chrome closes, or the extension is turned off, removed or reloaded.

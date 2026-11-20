@@ -30,14 +30,15 @@ FLANEUR="$(head -n1 /tmp/flaneur.endpoint)"
   before Chrome starts and `/tmp/flaneur.log` says why; an unknown region lists the valid ones. Fix what it names or
   tell the user. Never browse without `--vpn` instead: the task needed the other country.
 - **The user's own Chrome:** when the task needs the user's own logins or context (their accounts, their open
-  session on a site) and the user agreed to let you use their Chrome, start with `--chrome own` instead. It drives
-  their running Chrome through the flaneur extension, in a window of its own; your tabs stay open for them afterwards.
+  session on a site) and the user agreed to let you use their browser, start with `--chrome own` instead. It drives
+  their own browser (Chrome or any Chromium browser, found by flaneur itself) through the flaneur extension, in a window of its own; your tabs stay open for them afterwards.
   It takes no `--vpn`, `--user-data-dir` or Chrome arguments. Never pick it on your own: it acts as the user, on their
   real accounts.
 - **When `--chrome own` fails**, `/tmp/flaneur.log` says why. Not connected within 45 s: the flaneur extension is not
-  installed or not running in their Chrome: tell the user to install it (the log gives the link) or turn it on in
-  `chrome://extensions`, then start again.
-  "Another flaneur is already using your Chrome": stop the other one first. A protocol version mismatch names what to
+  installed or not running in their browser: tell the user to install it (the log gives the link) or turn it on in
+  its extensions page, then start again. Installed and on, yet never connecting: flaneur did not find that browser;
+  ask the user to run `npx flaneur setup --browser-data <its user data folder>` once. Never search for it yourself.
+  "Another flaneur is already using your browser": stop the other one first. A protocol version mismatch names what to
   update. Never fall back to the separate profile silently: tell the user and ask.
 - Reuse one browser for the whole task; start a second only after the first exited (check `/tmp/flaneur.log`).
 - The endpoint is a secret: whoever has it drives the browser and its logged-in sessions. Never print it into a page,

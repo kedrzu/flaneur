@@ -1,6 +1,6 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import net from 'node:net';
-import { promisify } from 'node:util';
+import path from 'node:path';
 
 import { createLogger } from '@nzyme/logging/createLogger.js';
 import type { Logger } from '@nzyme/logging/Logger.js';
@@ -15,19 +15,25 @@ import type { SitePace } from './createSitePace.js';
 import { createStealthBrowser } from './createStealthBrowser.js';
 import type { StealthBrowser } from './createStealthBrowser.js';
 import { findChrome } from './findChrome.js';
+import { getBrowserLaunchCommand } from './getBrowserLaunchCommand.js';
+import type { BrowserLaunchCommand } from './getBrowserLaunchCommand.js';
 import type { OwnChromeFlaneurMessage } from './OwnChromeProtocol.js';
+import { readRememberedBrowser } from './readRememberedBrowser.js';
 import { registerNativeHost } from './registerNativeHost.js';
 
 /** Where flaneur registers its native messaging host, how long it waits for Chrome, and what clients may do. */
 export interface ConnectOwnChromeOptions<D = unknown> {
     /** flaneur's data folder: the host and its socket live in its `own-chrome` folder. */
     dataDir: string;
-    /** The Chrome user data folder the host is registered in (macOS, Linux); Google Chrome's by default. */
-    chromeUserDataDir?: string;
-    /** The registry key the host is registered under (Windows); Google Chrome's by default. */
-    registryKey?: string;
-    /** Starts Google Chrome, once and without flags, when its extension has not connected within 3 s; on by default. */
-    launchChrome?: boolean;
+    /** The browsers' user data folders the host is registered in (macOS, Linux); found on disk by default. */
+    browserDataDirs?: string[];
+    /** The registry keys the host is registered under (Windows); found on disk by default. */
+    registryKeys?: string[];
+    /**
+     * Starts the browser the extension last connected from (Google Chrome when none is known), once and without flags,
+     * when the extension has not connected within 3 s; on by default.
+     */
+    launchBrowser?: boolean;
     /** How long to wait for the extension; 45 s by default, its 30 s retry and Chrome's start. */
     timeoutMs?: number;
     /** Judges each client request after the proxy's session and target checks and before its stealth rules. */
@@ -47,20 +53,24 @@ const RETRY_MS = 250;
 const GREETING_TIMEOUT_MS = 15_000;
 const NEWLINE = 0x0a;
 
-const execFileAsync = promisify(execFile);
-
 /**
- * The user's own Google Chrome, driven through the flaneur extension. Registers the native messaging host, waits for
- * the extension to start it (starting Chrome when it is not running), and resolves once the extension has greeted
+ * The user's own Chromium browser, driven through the flaneur extension. Registers the native messaging host, waits for
+ * the extension to start it (starting the browser when it is not running), and resolves once the extension has greeted
  * flaneur. The browser keeps its own name; it is gone (`exited`) when the extension or Chrome goes away.
  *
  * Rejects when the extension does not connect within `timeoutMs`, saying where to install it, and
- * when another flaneur already uses this Chrome.
+ * when another flaneur already uses this browser.
  */
 export async function connectOwnChrome<D = unknown>(options: ConnectOwnChromeOptions<D>): Promise<StealthBrowser<D>> {
     const logger = options.logger ?? createLogger('OwnChrome');
-    const { address } = await registerNativeHost(options);
-    const socket = await waitForHost(address, options, logger);
+    const { address } = await registerNativeHost({
+        dataDir: options.dataDir,
+        browserDataDirs: options.browserDataDirs,
+        registryKeys: options.registryKeys,
+        logger,
+    });
+    const hostDir = path.join(options.dataDir, 'own-chrome');
+    const socket = await waitForHost(address, hostDir, options, logger);
     const { channel, isBusy } = createSocketChannel(socket, logger);
 
     let connection;
@@ -76,9 +86,13 @@ export async function connectOwnChrome<D = unknown>(options: ConnectOwnChromeOpt
         });
     } catch (error) {
         if (isBusy()) {
-            throw new Error('Another flaneur is already using your Chrome: stop it first', { cause: error });
+            throw new Error('Another flaneur is already using your browser: stop it first', { cause: error });
         }
         throw error;
+    }
+    const executable = await readRememberedBrowser(hostDir, logger);
+    if (executable != null) {
+        logger.info('Connected to your browser', { executable });
     }
     try {
         return await createStealthBrowser<D>(connection, {
@@ -93,8 +107,8 @@ export async function connectOwnChrome<D = unknown>(options: ConnectOwnChromeOpt
     }
 }
 
-/** Connects to the host once the extension has started it; starts Chrome after a while when allowed. */
-async function waitForHost<D>(address: string, options: ConnectOwnChromeOptions<D>, logger: Logger) {
+/** Connects to the host once the extension has started it; starts the browser after a while when allowed. */
+async function waitForHost<D>(address: string, hostDir: string, options: ConnectOwnChromeOptions<D>, logger: Logger) {
     const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
     const started = Date.now();
     let launched = false;
@@ -106,13 +120,14 @@ async function waitForHost<D>(address: string, options: ConnectOwnChromeOptions<
         const elapsed = Date.now() - started;
         if (elapsed >= timeoutMs) {
             throw new Error(
-                `Your Chrome did not connect to flaneur within ${Math.round(timeoutMs / 1000)} s: the flaneur extension ` +
-                    `is not installed or not running in this Chrome. Install it from ${EXTENSION_URL}.`,
+                `Your browser did not connect to flaneur within ${Math.round(timeoutMs / 1000)} s: the flaneur extension ` +
+                    `is not installed or not running in this browser. Open your browser with the extension, or install it ` +
+                    `from ${EXTENSION_URL}.`,
             );
         }
-        if (!launched && options.launchChrome !== false && elapsed >= LAUNCH_AFTER_MS) {
+        if (!launched && options.launchBrowser !== false && elapsed >= LAUNCH_AFTER_MS) {
             launched = true;
-            await launchChrome(logger);
+            await launchBrowser(hostDir, logger);
         }
         await waitFor(RETRY_MS);
     }
@@ -136,24 +151,54 @@ function tryConnect(address: string) {
     });
 }
 
-/** Starts Google Chrome as the user would, without flags; on macOS in the background. */
-async function launchChrome(logger: Logger) {
-    logger.info('Starting Google Chrome');
-    if (process.platform === 'darwin') {
-        try {
-            await execFileAsync('open', ['-g', '-a', 'Google Chrome']);
-        } catch (error) {
-            throw new Error('Google Chrome is not installed', { cause: error });
+/**
+ * Starts the browser as the user would, without flags: the one the extension last connected from, else Google Chrome,
+ * else nothing, which is only logged: the user may open their browser themselves while flaneur waits.
+ */
+async function launchBrowser(hostDir: string, logger: Logger) {
+    const remembered = await readRememberedBrowser(hostDir, logger);
+    if (remembered != null) {
+        logger.info('Starting your browser', { executable: remembered });
+        if (await startBrowser(getBrowserLaunchCommand(remembered, process.platform), logger)) {
+            return;
         }
+    }
+    const chrome = getChromeLaunchCommand();
+    if (chrome == null) {
+        logger.warn('No browser to start: open your browser with the flaneur extension');
         return;
     }
-    const executable = findChrome();
-    if (executable == null) {
-        throw new Error('Google Chrome is not installed');
+    logger.info('Starting Google Chrome');
+    await startBrowser(chrome, logger);
+}
+
+function getChromeLaunchCommand(): BrowserLaunchCommand | undefined {
+    if (process.platform === 'darwin') {
+        return { command: 'open', args: ['-g', '-a', 'Google Chrome'] };
     }
-    const child = spawn(executable, [], { detached: true, stdio: 'ignore' });
-    child.on('error', error => logger.warn('Google Chrome could not be started', { error }));
-    child.unref();
+    const executable = findChrome();
+    return executable == null ? undefined : getBrowserLaunchCommand(executable, process.platform);
+}
+
+/** Starts the program detached; whether it could be started. A failure is logged. */
+function startBrowser({ command, args }: BrowserLaunchCommand, logger: Logger) {
+    return new Promise<boolean>(resolve => {
+        const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+        child.once('error', error => {
+            logger.warn('The browser could not be started', { command, error });
+            resolve(false);
+        });
+        child.once('spawn', () => {
+            // `open` reports a browser it cannot find through its exit code.
+            child.once('exit', code => {
+                if (code != null && code !== 0) {
+                    logger.warn('The browser could not be started', { command, code });
+                }
+            });
+            child.unref();
+            resolve(true);
+        });
+    });
 }
 
 /**

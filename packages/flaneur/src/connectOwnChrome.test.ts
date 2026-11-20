@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -32,9 +32,32 @@ test('with no extension in time, says where to install it', async () => {
     const options = await createOptions();
 
     await expect(connectOwnChrome({ ...options, timeoutMs: 500 })).rejects.toThrow(
-        /the flaneur extension is not installed or not running in this Chrome\. Install it from https:\/\/\S+\./,
+        /the flaneur extension is not installed or not running in this browser\. Open your browser with the extension, or install it from https:\/\/\S+\./,
     );
 });
+
+// A shell script stands in for the browser.
+test.skipIf(process.platform === 'win32')(
+    'starts the remembered browser, not Google Chrome, when no extension connects',
+    async () => {
+        const options = await createOptions();
+        const marker = path.join(options.dataDir, 'started');
+        const browser = path.join(options.dataDir, 'browser.sh');
+        await writeFile(browser, `#!/bin/sh\ntouch '${marker}'\n`);
+        await chmod(browser, 0o755);
+        await mkdir(path.join(options.dataDir, 'own-chrome'), { recursive: true });
+        await writeFile(
+            path.join(options.dataDir, 'own-chrome', 'browser.json'),
+            JSON.stringify({ executable: browser }),
+        );
+
+        await expect(connectOwnChrome({ ...options, launchBrowser: undefined, timeoutMs: 4500 })).rejects.toThrow(
+            /did not connect to flaneur/,
+        );
+
+        expect(existsSync(marker)).toBe(true);
+    },
+);
 
 test('drives Chrome through the host, refuses a second flaneur, and ends when the extension goes', async () => {
     const options = await createOptions();
@@ -49,7 +72,7 @@ test('drives Chrome through the host, refuses a second flaneur, and ends when th
     const second = connectOwnChrome(options);
 
     expect(version).toMatchObject({ product: 'Chrome/140.0.0.0', userAgent: USER_AGENT });
-    await expect(second).rejects.toThrow(/Another flaneur is already using your Chrome/);
+    await expect(second).rejects.toThrow(/Another flaneur is already using your browser/);
 
     host.stdin.end();
     expect(await browser.exited).toEqual({ code: null, signal: null });
@@ -58,10 +81,13 @@ test('drives Chrome through the host, refuses a second flaneur, and ends when th
 async function createOptions() {
     const dataDir = await mkdtemp(path.join(os.tmpdir(), 'flaneur-own-'));
     cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
+    // A browser folder that does not exist is skipped by the registration.
+    await mkdir(path.join(dataDir, 'chrome'));
     const options: ConnectOwnChromeOptions = {
         dataDir,
-        chromeUserDataDir: path.join(dataDir, 'chrome'),
-        launchChrome: false,
+        browserDataDirs: [path.join(dataDir, 'chrome')],
+        registryKeys: [],
+        launchBrowser: false,
         timeoutMs: 10_000,
         logger: createTestLogger('test').logger,
     };
