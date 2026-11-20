@@ -37,6 +37,16 @@ FLANEUR="$(head -n1 flaneur.endpoint)"
 agent-browser --cdp "$FLANEUR" open https://example.com
 ```
 
+Or with stock Playwright, in the browser's one context:
+
+```ts
+const browser = await chromium.connectOverCDP(endpoint);
+const page = await browser.contexts()[0].newPage();
+```
+
+Page scripts never see the client, so `evaluate` reads the DOM but not the page's globals, and a few Playwright
+features are out: [With Playwright](packages/flaneur/README.md#with-playwright).
+
 The CLI, its options and the library API: [`packages/flaneur/README.md`](packages/flaneur/README.md).
 
 ## What it has been tested against
@@ -101,8 +111,8 @@ rule instead, chiefly the human pace.
 
 ## For AI agents
 
-The `flaneur` skill teaches an agent to start the browser, drive it with agent-browser and behave like a person on the
-sites it visits.
+The `flaneur` skill teaches an agent to start the browser, drive it with agent-browser or a Playwright script and
+behave like a person on the sites it visits.
 
 **Claude Code:** the repo is a plugin marketplace with one plugin.
 

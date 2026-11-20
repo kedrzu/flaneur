@@ -1,12 +1,13 @@
 ---
 name: flaneur
-description: Browse real websites in a stealth Chrome that sites cannot tell from a person's — open pages, read them, click, type, fill forms and take screenshots through agent-browser over CDP. Use whenever a task needs a live website, especially one that blocks bots, shows a CAPTCHA or Cloudflare challenge, or needs a login that should persist between sessions. Not for fetching a plain URL whose text a web fetch already returns, and not for driving Playwright or Puppeteer (they do not work with it).
+description: Browse real websites in a stealth Chrome that sites cannot tell from a person's — open pages, read them, click, type, fill forms and take screenshots through agent-browser or a Playwright script over CDP. Use whenever a task needs a live website, especially one that blocks bots, shows a CAPTCHA or Cloudflare challenge, or needs a login that should persist between sessions. Not for fetching a plain URL whose text a web fetch already returns.
 ---
 
 # Browsing with flaneur
 
 flaneur is a real Chrome with a persistent profile, behind a proxy that keeps your commands out of what page scripts
-can see and holds every site to a human pace. You drive it with `agent-browser` through its CDP endpoint.
+can see and holds every site to a human pace. You drive it through its CDP endpoint: with `agent-browser` to look and
+click step by step, or with a Playwright script for a flow of many steps.
 
 ## Start the browser once
 
@@ -67,6 +68,36 @@ npx -y agent-browser --cdp "$FLANEUR" screenshot page.png
 
 Read the page through `snapshot` and the DOM. Page JavaScript globals are not visible: every evaluation runs in an
 isolated world, by design.
+
+## Drive it with Playwright
+
+For a flow of many steps (search, open each result, read a field), write a script with stock Playwright. Install
+`playwright-core` once in a folder of its own (it needs no browser download), and connect to the endpoint:
+
+```bash
+mkdir -p /tmp/flaneur-pw && cd /tmp/flaneur-pw && [ -d node_modules/playwright-core ] || npm i playwright-core
+```
+
+```js
+// /tmp/flaneur-pw/visit.mjs — run: node /tmp/flaneur-pw/visit.mjs "$(head -n1 /tmp/flaneur.endpoint)"
+import { chromium } from 'playwright-core';
+
+const browser = await chromium.connectOverCDP(process.argv[2]);
+const context = browser.contexts()[0];
+const page = context.pages()[0] ?? (await context.newPage());
+await page.goto('https://example.com');
+console.log(await page.title(), await page.getByRole('paragraph').first().textContent());
+await browser.close(); // only disconnects: the pages stay open for the next script
+```
+
+- Use `browser.contexts()[0]`: there is one profile. `browser.newContext()`, `browser.newPage()` and context options
+  (`userAgent`, `locale`, `viewport`) fail.
+- A later script sees the pages an earlier one left, the one used last first: continue where you stopped.
+- `evaluate` sees the page's DOM, not its JavaScript globals, and the page never sees yours. `exposeFunction`,
+  `exposeBinding`, `console` and `pageerror` events do not work; `worker.evaluate` fails.
+- With `--chrome own`, `context.cookies()`, `storageState()` and `grantPermissions()` fail, and a tab another client
+  drives is not yours.
+- The pace holds `goto` too: a wait of a few seconds is the protection, not a hang.
 
 ## Behave like a person
 
