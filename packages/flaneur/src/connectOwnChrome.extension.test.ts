@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -41,6 +41,8 @@ const REGISTRY_KEYS = [
 const RECONNECT_TIMEOUT_MS = 45_000;
 /** How long a page in a background tab takes to report its new state: hidden pages run timers once a second. */
 const SETTLE_MS = 1500;
+/** How long a cold Chrome may take to show its first page; a CI runner's first start is slow. */
+const START_TIMEOUT_MS = 30_000;
 
 const execFileAsync = promisify(execFile);
 const cleanups: (() => Promise<unknown> | void)[] = [];
@@ -55,17 +57,17 @@ test('with agents not allowed in the extension, gives up after the time limit sa
     const pages = servePages();
     const chrome = await startChrome({ settings: { allowAgents: false, scope: 'agent' }, url: pages.url('user') });
     // Chrome has started, and with it the extension, which would have connected by now if allowed.
-    await pages.next('user');
+    await chrome.whenStarted(pages, 'user');
 
     await expect(chrome.connect(5000)).rejects.toThrow(
         /did not connect to flaneur within 5 s\. Install the flaneur extension \(https:\/\/\S+\) and switch on "Allow agents/,
     );
-}, 30_000);
+}, 60_000);
 
 test('drives agent tabs unseen and visible in the background, sees only the tabs its scope allows, and leaves every tab open and detached when it closes', async () => {
     const pages = servePages();
     const chrome = await startChrome({ settings: { allowAgents: true, scope: 'all' }, url: pages.url('user-a') });
-    await pages.next('user-a');
+    await chrome.whenStarted(pages, 'user-a');
 
     // Scope "all": the user's tabs, open before the session and opened during it.
     const first = await chrome.connect();
@@ -152,7 +154,7 @@ test('drives agent tabs unseen and visible in the background, sees only the tabs
     expect(readCreated(second.cdp.events)).toEqual([agent3]);
     await expect(attach(second.cdp, userA)).rejects.toThrow(/No target with given id found/);
     await expect(attach(second.cdp, agent2)).rejects.toThrow(/No target with given id found/);
-}, 90_000);
+}, 120_000);
 
 /** Pages that report their state to the test: visibility, `navigator.webdriver`, trusted clicks, the DOM and globals. */
 function servePages() {
@@ -185,7 +187,7 @@ function servePages() {
     };
 
     /** The page's first report received at `since` or later: its state then, and proof it is still open. */
-    async function next(page: string, since = 0) {
+    async function next(page: string, since = 0, timeoutMs = 10_000) {
         let found: PageReport | undefined;
         await waitUntil(
             () => {
@@ -193,7 +195,7 @@ function servePages() {
                 return found;
             },
             {
-                timeoutMs: 10_000,
+                timeoutMs,
                 onTimeout: () => {
                     throw new Error(`The page ${page} reported nothing`);
                 },
@@ -281,6 +283,8 @@ interface ExtensionDefaults {
     scope: 'agent' | 'all';
 }
 
+type TestPages = ReturnType<typeof servePages>;
+
 interface StartChromeOptions {
     settings: ExtensionDefaults;
     /** The user's tab Chrome opens with. */
@@ -316,14 +320,26 @@ async function startChrome(options: StartChromeOptions) {
             '--no-default-browser-check',
             options.url,
         ],
-        { stdout: 'ignore', stderr: 'ignore' },
+        { stdout: 'ignore', stderr: Bun.file(path.join(tempDir, 'chrome.log')) },
     );
     cleanups.push(async () => {
         chrome.kill();
         await chrome.exited;
     });
 
-    return { connect, setSettings, openTab };
+    return { connect, setSettings, openTab, whenStarted };
+
+    /** Waits for the first page Chrome opens; a Chrome that never shows it fails the test with the end of its log. */
+    async function whenStarted(pages: TestPages, page: string) {
+        try {
+            return await pages.next(page, 0, START_TIMEOUT_MS);
+        } catch (error) {
+            const log = await readFile(path.join(tempDir, 'chrome.log'), 'utf8').catch(() => '');
+            throw new Error(`Chrome did not open its first page; its log ends with:\n${log.slice(-3000)}`, {
+                cause: error,
+            });
+        }
+    }
 
     /** Connects flaneur once the extension has, and serves it to a raw CDP client. */
     async function connect(timeoutMs = 10_000) {
