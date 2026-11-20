@@ -44,6 +44,24 @@ export interface ConnectClientParams<D> {
     logger: Logger;
 }
 
+/**
+ * The command a reply answers. A reply carries its command's session, as Chrome's do: Playwright looks the reply up
+ * among the pending calls of the session it names.
+ */
+interface MessageId {
+    id: number;
+    sessionId?: string;
+}
+
+/** A client's `Page.setLifecycleEventsEnabled` on one of its sessions, and what it waits for. */
+interface LifecycleEnabling {
+    id: MessageId;
+    sessionId: string;
+    params: Record<string, unknown>;
+    /** Settles once the client has the replies to the earlier commands of the session. */
+    earlierReplied: Promise<unknown> | undefined;
+}
+
 /** A refusal of the proxy's own checks, in the policy's shape. */
 interface Refusal {
     reject: string;
@@ -111,10 +129,12 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
      */
     const waiting = new Map<string | undefined, Promise<void>>();
     /**
-     * Per session, settled once the client has the reply to every command it sent there so far: context events must
-     * reach Playwright after the reply to its `Page.getFrameTree`, which it starts listening for them on.
+     * Per session, settled once the client has the reply to every command it sent there so far: context and lifecycle
+     * events must reach Playwright after the reply to its `Page.getFrameTree`, which it starts listening for them on.
      */
     const replied = new Map<string | undefined, Promise<unknown>>();
+    /** Per session, the events held while its lifecycle events are being enabled (`enableLifecycleEvents`). */
+    const heldEvents = new Map<string, CdpEvent[]>();
     let creating = 0;
     let discovering = false;
     let closed = false;
@@ -178,7 +198,7 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
                 return;
             }
             // Runs up to the browser call before the next command of the session is let go.
-            const executed = execute(id, decision, earlierReplied);
+            const executed = execute({ id, sessionId: key }, decision, earlierReplied);
             markSent();
             await executed;
         } finally {
@@ -278,9 +298,10 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
     /**
      * Runs a decision. A let-through command makes its session's target the group's last used before it is sent, so a
      * popup the command opens, claimed when it appears, comes after it. `Runtime.enable` waits for `earlierReplied`, the
-     * replies to the earlier commands of its session.
+     * replies to the earlier commands of its session, and so does `Page.setLifecycleEventsEnabled`
+     * (`enableLifecycleEvents`).
      */
-    async function execute(id: number, decision: StealthDecision, earlierReplied: Promise<unknown> | undefined) {
+    async function execute(id: MessageId, decision: StealthDecision, earlierReplied: Promise<unknown> | undefined) {
         try {
             switch (decision.type) {
                 case 'reply':
@@ -307,6 +328,15 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
                     return;
                 case 'forward':
                     touchSession(decision.sessionId);
+                    if (decision.method === 'Page.setLifecycleEventsEnabled' && decision.sessionId != null) {
+                        await enableLifecycleEvents({
+                            id,
+                            sessionId: decision.sessionId,
+                            params: decision.params,
+                            earlierReplied,
+                        });
+                        return;
+                    }
                     sendReply(id, await forward(decision.method, decision.params, decision.sessionId));
                     break;
             }
@@ -315,6 +345,30 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
                 sendError(id, error.code, error.message, error.data);
             } else {
                 sendError(id, SERVER_ERROR, error instanceof Error ? error.message : 'The command failed');
+            }
+        }
+    }
+
+    /**
+     * Enables a session's lifecycle events once the client has the replies to its earlier commands, and holds the
+     * session's events while the browser answers, sending them right after the reply. Playwright listens for a frame's
+     * lifecycle events only once it has the frame tree, or, for a page on its initial empty document, only once it has
+     * this reply; and Chrome replays the current document's events before replying. With Chrome's own auto-attach a
+     * new page waits for the client, so nothing happens in between; a page the proxy attaches the client to (a popup)
+     * was let run by the brand, and can commit and load meanwhile: Playwright would never see it loaded.
+     */
+    async function enableLifecycleEvents({ id, sessionId, params: enableParams, earlierReplied }: LifecycleEnabling) {
+        await earlierReplied;
+        const held: CdpEvent[] = [];
+        heldEvents.set(sessionId, held);
+        try {
+            sendReply(id, await send('Page.setLifecycleEventsEnabled', enableParams, sessionId));
+        } finally {
+            if (heldEvents.get(sessionId) === held) {
+                heldEvents.delete(sessionId);
+            }
+            for (const event of held) {
+                sendEvent(event);
             }
         }
     }
@@ -641,15 +695,20 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
     }
 
     function sendEvent(event: CdpEvent) {
+        const held = event.sessionId == null ? undefined : heldEvents.get(event.sessionId);
+        if (held != null) {
+            held.push(event);
+            return;
+        }
         write({ method: event.method, params: event.params, sessionId: event.sessionId });
     }
 
-    function sendReply(id: number, result: unknown) {
-        write({ id, result: result ?? {} });
+    function sendReply({ id, sessionId }: MessageId, result: unknown) {
+        write({ id, sessionId, result: result ?? {} });
     }
 
-    function sendError(id: number | undefined, code: number, message: string, detail?: string) {
-        write({ id, error: { code, message, data: detail } });
+    function sendError(messageId: MessageId | undefined, code: number, message: string, detail?: string) {
+        write({ id: messageId?.id, sessionId: messageId?.sessionId, error: { code, message, data: detail } });
     }
 
     function write(message: object) {

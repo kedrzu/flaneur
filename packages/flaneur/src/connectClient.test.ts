@@ -155,6 +155,18 @@ test("a client's download behavior is answered without reaching the browser", as
     expect(browser.sent).toEqual([]);
 });
 
+test('a reply names the session of its command, as Chrome does, whether forwarded, answered or refused', async () => {
+    const { client } = prepare({});
+
+    const forwarded = await client.call('Page.reload', {}, 's-a');
+    const answered = await client.call('Console.enable', {}, 's-a');
+    const refused = await client.call('Runtime.addBinding', { name: 'binding' }, 's-a');
+
+    expect(forwarded).toEqual({ id: 1, sessionId: 's-a', result: {} });
+    expect(answered).toEqual({ id: 2, sessionId: 's-a', result: {} });
+    expect(refused).toMatchObject({ id: 3, sessionId: 's-a', error: { code: -32_000 } });
+});
+
 test('sessions are flat, and an auto-attach is set on a session', async () => {
     const { browser, client } = prepare({});
 
@@ -453,6 +465,46 @@ test("contexts are announced only after the reply to the session's earlier comma
         'Runtime.executionContextCreated',
         2,
     ]);
+});
+
+test("lifecycle events are enabled once the client has the session's frame tree, and its events follow the reply", async () => {
+    const tree = Promise.withResolvers<void>();
+    const enabling = Promise.withResolvers<void>();
+    const { browser, client } = prepare({
+        answer: async command => {
+            if (command.method === 'Page.getFrameTree') {
+                await tree.promise;
+            }
+            if (command.method === 'Page.setLifecycleEventsEnabled') {
+                // Chrome replays the document's lifecycle before it replies.
+                browser.emit({
+                    method: 'Page.lifecycleEvent',
+                    params: { frameId: 'f-main', name: 'load' },
+                    sessionId: 's-a',
+                });
+                await enabling.promise;
+            }
+            return answerPage(command);
+        },
+    });
+
+    const replies = Promise.all([
+        client.call('Page.getFrameTree', {}, 's-a'),
+        client.call('Page.setLifecycleEventsEnabled', { enabled: true }, 's-a'),
+    ]);
+    await Bun.sleep(10);
+    expect(browser.sent.map(command => command.method)).toEqual(['Page.getFrameTree']);
+    tree.resolve();
+    await Bun.sleep(10);
+    expect(client.messages.map(message => message['id'] ?? message['method'])).toEqual([1]);
+    enabling.resolve();
+    await replies;
+
+    expect(browser.sent.map(command => command.method)).toEqual([
+        'Page.getFrameTree',
+        'Page.setLifecycleEventsEnabled',
+    ]);
+    expect(client.messages.map(message => message['id'] ?? message['method'])).toEqual([1, 2, 'Page.lifecycleEvent']);
 });
 
 /** What `prepare` builds a client with. */
