@@ -242,6 +242,23 @@ test('a session ends when Chrome detaches the debugger, and before its closed ta
     ]);
 });
 
+test('activating a page, by target or on its session, brings it to the front through the extension', async () => {
+    const extension = createFakeExtension();
+    const core = connectCore(await createOwnChromeConnection(extension.channel, createTestLogger('test').logger));
+    await core.call('Target.createTarget', {});
+    await core.call('Target.createTarget', {});
+    const sessionId = readSessionId(await core.call('Target.attachToTarget', { targetId: 'tab-2', flatten: true }));
+    const before = extension.requests().length;
+
+    expect(await core.call('Target.activateTarget', { targetId: 'tab-1' })).toMatchObject({ result: {} });
+    expect(await core.call('Page.bringToFront', {}, sessionId)).toMatchObject({ result: {} });
+
+    expect(extension.requests().slice(before)).toEqual([
+        { type: 'tabs.activate', targetId: 'tab-1' },
+        { type: 'tabs.activate', targetId: 'tab-2' },
+    ]);
+});
+
 test('closing detaches every tab, closes none, then settles', async () => {
     const extension = createFakeExtension({ tabs: [USER_TAB] });
     const connection = await createOwnChromeConnection(extension.channel, createTestLogger('test').logger);
