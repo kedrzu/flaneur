@@ -10,14 +10,22 @@ can see and holds every site to a human pace. You drive it with `agent-browser` 
 
 ## Start the browser once
 
-Start it in the background and keep its endpoint, the only line it prints on stdout:
+It runs until stopped, so it must outlive the command that starts it. Start it in the background; it writes its
+endpoint, the only line it prints on stdout, and its PID to files:
 
 ```bash
-npx -y flaneur > /tmp/flaneur.endpoint 2> /tmp/flaneur.log &
+: > /tmp/flaneur.endpoint   # a stale endpoint from an earlier run must not count
+sh -c 'echo $$ > /tmp/flaneur.pid; exec npx -y flaneur > /tmp/flaneur.endpoint 2> /tmp/flaneur.log' &
 until [ -s /tmp/flaneur.endpoint ]; do sleep 0.5; done
-FLANEUR="$(head -n1 /tmp/flaneur.endpoint)"
 ```
 
+Options go after `npx -y flaneur`, inside the quotes.
+
+- **Codex** ends a command's background jobs when the command returns, `&` included: run the `sh -c '…'` line
+  without `&`, as a long-running terminal session you leave open, and wait for the endpoint in the next command.
+- **A sandboxed shell** (Codex's default) blocks what flaneur needs: the network, and starting Chrome. Run its commands
+  and agent-browser's outside the sandbox, with the escalated permission the harness offers or the user's approval.
+  When the browser does not start, say so: never answer from memory instead.
 - It uses the installed Google Chrome. Without one, add `--chrome testing`: it downloads a pinned, checksummed
   Chrome for Testing once.
 - **Another country:** when the task needs the site as seen from elsewhere, add
@@ -46,9 +54,11 @@ FLANEUR="$(head -n1 /tmp/flaneur.endpoint)"
 
 ## Drive it with agent-browser
 
-Pass the endpoint on every call:
+Pass the endpoint on every call. Read it from the file in each command: a shell variable does not outlive the command
+that set it.
 
 ```bash
+FLANEUR="$(head -n1 /tmp/flaneur.endpoint)"
 npx -y agent-browser --cdp "$FLANEUR" open https://example.com
 npx -y agent-browser --cdp "$FLANEUR" snapshot -i      # interactive elements with refs (@e1, @e2, …)
 npx -y agent-browser --cdp "$FLANEUR" click @e3
@@ -72,7 +82,7 @@ isolated world, by design.
 ## Stop
 
 ```bash
-kill %1   # or the PID of the background npx; Chrome closes cleanly on SIGTERM
+kill "$(cat /tmp/flaneur.pid)"   # Chrome closes cleanly on SIGTERM
 ```
 
 With `--chrome own`, stopping only lets go of the user's Chrome: it and its tabs stay open.
