@@ -15,6 +15,30 @@ export { findChromeForTesting } from './findChromeForTesting.js';
 export type { FindChromeForTestingOptions } from './findChromeForTesting.js';
 export { installChromeForTesting } from './installChromeForTesting.js';
 export type { InstallChromeForTestingOptions, InstalledChromeForTesting } from './installChromeForTesting.js';
+export type {
+    OwnChromeDebuggerAttach,
+    OwnChromeDebuggerDetach,
+    OwnChromeDebuggerDetached,
+    OwnChromeDebuggerEvent,
+    OwnChromeDebuggerSend,
+    OwnChromeErrorReply,
+    OwnChromeExtensionMessage,
+    OwnChromeFlaneurMessage,
+    OwnChromeHello,
+    OwnChromeHelloReply,
+    OwnChromeReply,
+    OwnChromeRequest,
+    OwnChromeTab,
+    OwnChromeTabCreated,
+    OwnChromeTabListResult,
+    OwnChromeTabRemoved,
+    OwnChromeTabResult,
+    OwnChromeTabsActivate,
+    OwnChromeTabsClose,
+    OwnChromeTabsCreate,
+    OwnChromeTabsList,
+    OwnChromeTabUpdated,
+} from './OwnChromeProtocol.js';
 export { launchStealthBrowser } from './launchStealthBrowser.js';
 export type { LaunchedStealthBrowser, LaunchStealthBrowserOptions } from './launchStealthBrowser.js';
 export { serveBrowser } from './serveBrowser.js';
