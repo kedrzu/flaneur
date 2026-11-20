@@ -44,9 +44,10 @@ The native messaging host admits one extension ID only, so the unpacked build mu
 - **Description:** what the options page says. flaneur lets AI agents running on this computer browse in this
   Chrome, signed in to the sites the user is signed in to; by default agents see only the tabs they open, in a window
   of their own.
-- **Icons:** `packages/chrome-extension/icons/` (16 to 128 px); larger renders of the signet are in `docs/brand/png/`.
-- **Screenshots:** the options page, and the agent window with a page an agent opened, the yellow debugging bar
-  showing.
+- **Images:** the listing takes its own, not the package's; they are in `packages/chrome-extension/store/`:
+  `store-icon-128.png` (the hat, 96 px with 16 px of transparent margin), `screenshot-options-1280x800.png` (the
+  options page) and `small-promo-440x280.png` (the lockup on the tile's colours). A second screenshot, the agent
+  window with a page an agent opened and the yellow debugging bar showing, has to be taken by hand.
 - **Single purpose:** "Lets AI agents that the user runs on this computer with flaneur browse in this Chrome, in tabs
   the user allows."
 
