@@ -126,11 +126,13 @@ test('drives agent tabs unseen and visible in the background, sees only the tabs
     const closed = Date.now();
     await first.server.close();
 
-    // Every tab stays open; without the debugger's emulation a background tab is hidden again. `agent-1` is the active
-    // tab of its window since `activateTarget`, the one before it is in the background now.
-    expect(await pages.next('agent-1', closed + SETTLE_MS)).toMatchObject({ visibility: 'visible' });
-    expect(await pages.next('agent-2', closed + SETTLE_MS)).toMatchObject({ visibility: 'hidden' });
-    expect(await pages.next('user-a', closed + SETTLE_MS)).toMatchObject({ visibility: 'hidden' });
+    // Every tab stays open, and the debugger's focus emulation is gone: a tab in the background has no focus again.
+    // Focus, not visibility: Chrome does not recompute a tab's visibility when the emulation goes. Which agent tab is
+    // the active one after `activateTarget` depends on the desktop (macOS lets no app in the background come to the
+    // front), so only the one in the background is asserted.
+    expect(await pages.next('agent-1', closed + SETTLE_MS)).toBeDefined();
+    expect(await pages.next('agent-2', closed + SETTLE_MS)).toMatchObject({ focus: false });
+    expect(await pages.next('user-a', closed + SETTLE_MS)).toMatchObject({ focus: false });
     expect(await pages.next('user-b', closed + SETTLE_MS)).toBeDefined();
 
     // Scope "agent tabs only", on the extension's next connection, which its 30 s retry makes: the tabs of the last
@@ -219,6 +221,7 @@ interface PageReport {
     clicks: number;
     /** `typeof` the global an isolated-world script sets: `undefined` while the script stays out of the page's world. */
     isolatedLeak: string;
+    focus: boolean;
     /** The DOM attribute the same script sets, which the page does see. */
     marker: string | null;
     receivedAt: number;
@@ -242,6 +245,7 @@ function report() {
         body: JSON.stringify({
             page: ${JSON.stringify(page)},
             visibility: document.visibilityState,
+            focus: document.hasFocus(),
             webdriver: navigator.webdriver,
             clicks,
             isolatedLeak: typeof window.flaneurIsolated,
@@ -256,18 +260,19 @@ function readReport(value: unknown): PageReport | undefined {
     if (!isPlainObject(value)) {
         return undefined;
     }
-    const { page, visibility, webdriver, clicks, isolatedLeak, marker } = value;
+    const { page, visibility, focus, webdriver, clicks, isolatedLeak, marker } = value;
     if (
         typeof page !== 'string' ||
         typeof visibility !== 'string' ||
         typeof webdriver !== 'boolean' ||
         typeof clicks !== 'number' ||
         typeof isolatedLeak !== 'string' ||
+        typeof focus !== 'boolean' ||
         !(typeof marker === 'string' || marker === null)
     ) {
         return undefined;
     }
-    return { page, visibility, webdriver, clicks, isolatedLeak, marker, receivedAt: Date.now() };
+    return { page, visibility, focus, webdriver, clicks, isolatedLeak, marker, receivedAt: Date.now() };
 }
 
 /** What the extension starts with: its settings before the user changes any. */
