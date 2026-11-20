@@ -13,3 +13,7 @@ indent_size = 2
 
 [*.md]
 trim_trailing_whitespace = false
+
+# Claude Code rewrites it with 2-space JSON (see .oxfmtrc.json).
+[.claude/settings.json]
+indent_size = 2
