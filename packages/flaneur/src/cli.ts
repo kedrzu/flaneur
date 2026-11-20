@@ -6,23 +6,28 @@ import { createContainer } from '@nzyme/ioc/Container.js';
 import { createLogger, setLoggerTransport } from '@nzyme/logging/createLogger.js';
 import { LoggerTransport } from '@nzyme/logging/LoggerTransport.js';
 import { PrettyCliLoggerTransport } from '@nzyme/logging/PrettyCliLoggerTransport.js';
+import { assertNever } from '@nzyme/utils/assertNever.js';
 
 import { createSitePace } from './createSitePace.js';
 import { findChrome } from './findChrome.js';
 import { installChromeForTesting } from './installChromeForTesting.js';
+import { parseChromeOption } from './parseChromeOption.js';
+import type { ChromeOption } from './parseChromeOption.js';
 import { serveStealthBrowser } from './serveStealthBrowser.js';
 import type { StealthBrowserServer } from './serveStealthBrowser.js';
 import { startVpnTunnel } from './startVpnTunnel.js';
 
-const USAGE = `Usage: flaneur [--chrome <path> | --chrome-for-testing [--chrome-version <v>]]
-                       [--user-data-dir <dir>] [--port <n>] [--no-pace]
+const USAGE = `Usage: flaneur [--chrome installed|testing|testing@<version>|<path>] [--user-data-dir <dir>]
+                       [--port <n>] [--no-pace]
                        [--vpn <region> --vpn-provider <name>] [-- <chrome args>]
 
 Launches a stealth Chrome and prints its CDP endpoint (ws://127.0.0.1:<port>/<token>) as the only line on stdout.
 
-  --chrome <path>           the Chrome binary; installed Google Chrome by default
-  --chrome-for-testing      install (once) and use the pinned Chrome for Testing
-  --chrome-version <v>      another Chrome for Testing version, downloaded unverified
+  --chrome <chrome>         which Chrome runs:
+                              installed            the installed Google Chrome (the default)
+                              testing              the pinned Chrome for Testing, installed once
+                              testing@<version>    another Chrome for Testing version, downloaded unverified
+                              <path>               any Chrome binary
   --user-data-dir <dir>     the browser profile; a persistent one in this computer's app data by default
   --port <n>                the local port; any free one by default
   --no-pace                 do not hold sites to a human pace
@@ -52,8 +57,6 @@ async function run() {
         args: ownArgs,
         options: {
             chrome: { type: 'string' },
-            'chrome-for-testing': { type: 'boolean' },
-            'chrome-version': { type: 'string' },
             'user-data-dir': { type: 'string' },
             port: { type: 'string' },
             'no-pace': { type: 'boolean' },
@@ -66,24 +69,13 @@ async function run() {
         console.error(USAGE);
         return;
     }
-    if (values.chrome != null && values['chrome-for-testing']) {
-        throw new Error('--chrome and --chrome-for-testing exclude each other');
-    }
-    if (values['chrome-version'] != null && !values['chrome-for-testing']) {
-        throw new Error('--chrome-version needs --chrome-for-testing');
-    }
-
+    const chrome = parseChromeOption(values.chrome);
     if ((values.vpn == null) !== (values['vpn-provider'] == null)) {
         throw new Error('--vpn and --vpn-provider go together');
     }
 
     const dataDir = getDataDir();
-    const executablePath = await resolveChrome({
-        chrome: values.chrome,
-        chromeForTesting: values['chrome-for-testing'] === true,
-        version: values['chrome-version'],
-        dataDir,
-    });
+    const executablePath = await resolveChrome(chrome, dataDir);
     const tunnel =
         values.vpn == null || values['vpn-provider'] == null
             ? null
@@ -129,32 +121,30 @@ async function run() {
     }
 }
 
-/** How the CLI was asked to pick Chrome. */
-interface ResolveChromeParams {
-    chrome: string | undefined;
-    chromeForTesting: boolean;
-    version: string | undefined;
-    dataDir: string;
-}
-
-async function resolveChrome(params: ResolveChromeParams) {
-    if (params.chrome != null) {
-        return params.chrome;
+async function resolveChrome(chrome: ChromeOption, dataDir: string) {
+    switch (chrome.type) {
+        case 'installed': {
+            const executablePath = findChrome();
+            if (!executablePath) {
+                throw new Error(
+                    'Google Chrome is not installed: install it, or pass --chrome testing or --chrome <path>',
+                );
+            }
+            return executablePath;
+        }
+        case 'testing': {
+            const installed = await installChromeForTesting({
+                cacheDir: path.join(dataDir, 'chrome-for-testing'),
+                version: chrome.version,
+                logger,
+            });
+            return installed.executablePath;
+        }
+        case 'path':
+            return chrome.path;
+        default:
+            return assertNever(chrome);
     }
-    if (params.chromeForTesting) {
-        const installed = await installChromeForTesting({
-            cacheDir: path.join(params.dataDir, 'chrome-for-testing'),
-            version: params.version,
-            logger,
-        });
-        return installed.executablePath;
-    }
-
-    const chrome = findChrome();
-    if (!chrome) {
-        throw new Error('Google Chrome is not installed: install it, or pass --chrome <path> or --chrome-for-testing');
-    }
-    return chrome;
 }
 
 /** The VPN login, from the environment only: on the command line every local user could read it. */
