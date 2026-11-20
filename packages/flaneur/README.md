@@ -25,7 +25,7 @@ honours the CLI's `node` shebang and runs it on Node when Node is installed.
 ## CLI
 
 ```bash
-npx flaneur [--chrome <path> | --chrome-for-testing [--chrome-version <v>]] \
+npx flaneur [--chrome installed|testing|testing@<version>|<path>] \
     [--user-data-dir <dir>] [--port <n>] [--no-pace] \
     [--vpn <region> --vpn-provider <name>] [-- <chrome args>]
 ```
@@ -34,9 +34,9 @@ It prints one line to stdout, the endpoint `ws://127.0.0.1:<port>/<token>`; logs
 endpoint drives the browser: it listens on `127.0.0.1` only and refuses any connection from a web page (one with an
 `Origin` header).
 
-- **Chrome:** the installed Google Chrome by default. `--chrome <path>` names another binary. `--chrome-for-testing`
-  downloads the pinned Chrome for Testing once, checks its SHA-256 and reuses it; `--chrome-version` picks another
-  version, downloaded over HTTPS but unverified.
+- **Chrome:** `--chrome` picks it. `installed`, the default, is the installed Google Chrome. `testing` downloads the
+  pinned Chrome for Testing once, checks its SHA-256 and reuses it; `testing@<version>` picks another version,
+  downloaded over HTTPS but unverified. A value with a path separator (`/` or `\`) is the path to any Chrome binary.
 - **Profile and cache:** a persistent profile and the Chrome for Testing cache live in `flaneur/` in the
   user's app data: `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows,
   `${XDG_DATA_HOME:-~/.local/share}` on Linux. `--user-data-dir` sets another profile.

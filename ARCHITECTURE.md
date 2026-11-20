@@ -37,7 +37,7 @@ package and is not published to npm; Claude Code installs it from GitHub. Its `v
   worktree. `setup.build.sh` is its build half, which CI runs too.
 - **Checks:** `bun run typecheck`, `bun run lint:check`, `bun run format:check` and `bun run tests`
   (`tests:full` for every test). CI runs all four, with `tests:full`, on every pull request
-  (`.github/workflows/build.yml`, required check `Build`).
+  and every push to `main` (`.github/workflows/build.yml`, required check `Build`).
 - **Release:** pushing a `v*` tag runs `.github/workflows/release.yml`: build, typecheck, tests, then
   `scripts/packRelease.sh` (`bun pm pack`, which rewrites `workspace:*` to real versions, and
   `scripts/checkPackedRelease.sh`: the pinned `@nzyme/*` source equals each package's nzyme release tag, and the
