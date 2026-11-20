@@ -1023,7 +1023,7 @@
       },
       "devDependencies": {
         "@nzyme/tsconfig": "workspace:*",
-        "@types/chrome": "^0.1.0",
+        "@types/chrome": "^0.1.43",
         "@typescript/native-preview": "^7.0.0-dev.20260707.2",
       },
     },

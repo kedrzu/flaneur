@@ -11,7 +11,16 @@ import path from 'node:path';
 import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
 
 /** Everything the manifest and the options page load, besides the manifest itself. */
-const FILES = ['options.html', 'defaults.json', 'dist/serviceWorker.js', 'dist/options.js'];
+const FILES = [
+    'options.html',
+    'defaults.json',
+    'dist/serviceWorker.js',
+    'dist/options.js',
+    'icons/icon-16.png',
+    'icons/icon-32.png',
+    'icons/icon-48.png',
+    'icons/icon-128.png',
+];
 
 const root = path.join(import.meta.dirname, '..');
 const manifest: unknown = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
@@ -23,6 +32,7 @@ delete manifest['key'];
 const stage = await mkdtemp(path.join(tmpdir(), 'flaneur-extension-'));
 try {
     await mkdir(path.join(stage, 'dist'));
+    await mkdir(path.join(stage, 'icons'));
     for (const file of FILES) {
         await copyFile(path.join(root, file), path.join(stage, file));
     }
