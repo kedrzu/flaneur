@@ -70,7 +70,7 @@ const DETECTOR_SCRIPT = `
         }
     }, true);
     addEventListener('scroll', () => {
-        if (since('wheel') > 1000 && since('key') > 1000) {
+        if (since('wheel') > 1000) {
             trace.push('scroll with no wheel');
             write();
         }
@@ -125,6 +125,36 @@ test.skipIf(executable == null)(
             expect(snapshot).toMatch(/"Card" \[ref=e\d+\] clickable/);
             expect(await agent.read('done')).toEqual(['go']);
             expect((await agent.read('trace')).filter(entry => entry.startsWith('attribute'))).toEqual([]);
+        } finally {
+            await agent.close();
+        }
+    },
+    TIMEOUT_MS,
+);
+
+test.skipIf(executable == null)(
+    "fill, type, focus and scrolls reach the page as a hand's clicks, keys and wheel, with no script's events",
+    async () => {
+        const agent = openAgent();
+        try {
+            await agent.run('open', site.url);
+            await agent.run('fill', '#name', 'hello');
+            await agent.run('type', '#name', '!');
+            const value = await agent.run('get', 'value', '#name');
+            await agent.run('scroll', 'down', '400');
+            await agent.run('scrollintoview', '#far');
+            const filled = { done: await agent.read('done'), trace: await agent.read('trace') };
+            // `click` on a CSS selector out of view, which agent-browser scrolls to itself.
+            await agent.run('open', site.url);
+            await agent.run('focus', '#name');
+            await agent.run('click', '#far');
+            const clicked = { done: await agent.read('done'), trace: await agent.read('trace') };
+
+            expect({ value: value.trim(), filled, clicked }).toEqual({
+                value: 'hello!',
+                filled: { done: ['name'], trace: [] },
+                clicked: { done: ['name', 'far'], trace: [] },
+            });
         } finally {
             await agent.close();
         }

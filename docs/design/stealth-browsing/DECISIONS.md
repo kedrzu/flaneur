@@ -144,6 +144,21 @@ language, and anything later. Vendors document client-side JS fingerprinting fir
 > build the input layer now rather than wait for the eval to show a site reacting
 > (`packages/flaneur/src/createHumanInput.ts`, on by default in the CLI).
 
+> **Checked 2026-11-21:** agent-browser v0.43.0 over flaneur with the input layer on, on a local page recording what a
+> sensor sees: `fill`, `type` and `focus` call `this.focus()` from script, a focus with no pointer or key event before
+> it; `fill` then clears the field with `select()`, `value = ''` and an untrusted `input` event (`isTrusted: false`, no
+> `inputType`); `scroll` runs `window.scrollBy`, `scrollintoview` and `click` on a CSS selector out of view
+> `scrollIntoView()`: the page scrolls with no wheel event (`cli/src/native/interaction.rs`, `element.rs`). Clicks,
+> `press`, `keyboard type`, `type`'s text and a click on an `@ref` out of view were already a hand's.
+
+**Script calls a hand makes (2026-11-21).** The input layer recognises a client's script call that does what a hand
+does, by agent-browser's exact source (`packages/flaneur/src/findHandAction.ts`), and does it by hand, answering the
+call as the empty script would: a text field is focused by a click (to the right of its text, so the caret lands at the
+end) and cleared by the platform's select-all chord and Backspace; `scrollIntoView` and `scrollBy` are wheeled; a
+`click` evaluation that would scroll its element into view first finds the element with the scroll taken out, wheels it
+into view, then runs as sent. A call the hand would not just do with a click (focusing a button or a select) runs as
+sent. It holds while the input layer is on, as the rest of the layer does.
+
 **Rejected.**
 
 - Waiting for the eval before building the input layer — the measurement-first rule of 2026-11-15; the owner

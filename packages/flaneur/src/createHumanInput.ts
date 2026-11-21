@@ -1,9 +1,12 @@
 import { createLogger } from '@nzyme/logging/createLogger.js';
 import type { Logger } from '@nzyme/logging/Logger.js';
+import { assertNever } from '@nzyme/utils/assertNever.js';
 import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
 
 import type { CdpEvent, CdpRequest } from './CdpTypes.js';
 import type { SessionRegistry } from './createSessionRegistry.js';
+import { findHandAction } from './findHandAction.js';
+import type { HandAction } from './findHandAction.js';
 import { planMousePath } from './planMousePath.js';
 import type { MousePathPoint, Point } from './planMousePath.js';
 import { PAUSE_CHARACTERS, planTyping, sampleKeyInterval } from './planTyping.js';
@@ -46,8 +49,9 @@ export interface HumanInput {
 export interface HumanInputRun {
     /**
      * Performs a client's command as a person would: sends what comes before it with `send`, on the command's session,
-     * and resolves with the command to send last, whose reply answers the client. A command that is not input
-     * resolves at once, unchanged.
+     * and resolves with the command to send last, whose reply answers the client. A script call that does what a
+     * hand does resolves, once the hand did it, with the call emptied of its script. Anything else resolves at once,
+     * unchanged.
      */
     perform(command: CdpRequest, send: HumanInputSend): Promise<CdpRequest>;
     /** Feeds a browser event of the run, after the session registry saw it. */
@@ -104,6 +108,25 @@ interface Viewport {
     height: number;
 }
 
+/** A text field a client's script means to focus or clear (`READ_FIELD`). */
+interface TextField {
+    focused: boolean;
+    empty: boolean;
+    /** A one-line input, whose caret a click to the right of its text puts at the end. */
+    line: boolean;
+}
+
+/** A key event's own parameters, as `Input.dispatchKeyEvent` takes them. */
+interface KeyParams {
+    type: 'rawKeyDown' | 'keyUp';
+    key: string;
+    code: string;
+    windowsVirtualKeyCode: number;
+    modifiers?: number;
+    /** The editing commands of the key on macOS, where Chrome runs them only when named. */
+    commands?: string[];
+}
+
 const SECOND_MS = 1000;
 const TYPING_INTERVAL_MS = 90;
 const MIN_TIME_ON_PAGE_MS = 1.5 * SECOND_MS;
@@ -126,6 +149,24 @@ const SCROLL_SETTLE_CHECKS = 12;
 const SCROLL_SETTLE_INTERVAL_MS = 50;
 /** Idle moves on a fresh page go on while at least this much of its time remains. */
 const MIN_IDLE_MOVE_MS = 400;
+/** What a client's script call is answered with once the hand did its work: nothing, as the script returns. */
+const NO_FUNCTION = 'function () {}';
+const NO_EXPRESSION = 'undefined';
+/** Run on an element in the client's world: a `TextField`, or `null` for anything a click would not just focus. */
+const READ_FIELD = `function () {
+    const types = ['text', 'search', 'email', 'url', 'tel', 'password', 'number'];
+    const line = this.localName === 'input' && types.includes(this.type);
+    if (!(line || this.localName === 'textarea' || this.isContentEditable) || this.disabled || this.readOnly) {
+        return null;
+    }
+    const value = this.isContentEditable ? this.textContent : this.value;
+    return { focused: this.getRootNode().activeElement === this, empty: value === '', line };
+}`;
+/** Run on an element in the client's world: whether a point of the viewport hits it. */
+const HITS_POINT = `function (x, y) {
+    const hit = this.ownerDocument.elementFromPoint(x, y);
+    return hit === this || this.contains(hit);
+}`;
 
 /**
  * Creates input as a person makes it. A client's mouse move becomes a curved path from where the cursor is, ending a
@@ -134,10 +175,12 @@ const MIN_IDLE_MOVE_MS = 400;
  * spaced like a typist's; a scroll into view (`DOM.scrollIntoViewIfNeeded`) of a node out of view is wheeled most of
  * the way, and a long wheel is split into notches. The first input on a freshly committed main document waits until
  * 1.5 to 3.5 s have passed since the commit, the cursor idling meanwhile. A document committed before the input saw
- * its page counts from its first input.
+ * its page counts from its first input. A client's script call that does what a hand does (`findHandAction`:
+ * agent-browser focusing or clearing a text field, scrolling into view or by an amount) is done by the hand instead.
  *
- * The input sends only plain Input commands and reads only the page's layout (`DOM.getContentQuads`,
- * `Page.getLayoutMetrics`): nothing a page script could tell from a person's hand. Anything else, touch and drag events
+ * The input sends only plain Input commands, reads the page's layout (`DOM.getContentQuads`,
+ * `Page.getLayoutMetrics`) and reads a field in the client's own isolated world: nothing a page script could tell from
+ * a person's hand. Anything else, touch and drag events
  * included, goes as the client sent it.
  */
 export function createHumanInput(options: CreateHumanInputOptions = {}): HumanInput {
@@ -171,6 +214,11 @@ export function createHumanInput(options: CreateHumanInputOptions = {}): HumanIn
                     return performText(call);
                 case 'DOM.scrollIntoViewIfNeeded':
                     return performScroll(call);
+                case 'Runtime.callFunctionOn':
+                case 'Runtime.evaluate': {
+                    const action = findHandAction(command);
+                    return action == null ? command : performHandAction(call, action);
+                }
                 default:
                     return command;
             }
@@ -439,6 +487,174 @@ export function createHumanInput(options: CreateHumanInputOptions = {}): HumanIn
         return command;
     }
 
+    /**
+     * A client's script call that does what a hand does (`findHandAction`), done by the hand instead, and the call
+     * then sent with no script, so the client gets the reply it expects: a text field is focused by clicking it and
+     * cleared by selecting its text and pressing Backspace, and a scroll is wheeled. A field the hand would not
+     * just focus by a click (a button, a select) is left to the client's script.
+     */
+    async function performHandAction(call: PageCommand, action: HandAction): Promise<CdpRequest> {
+        const { command } = call;
+        switch (action.type) {
+            case 'focus':
+            case 'clear': {
+                const field = await readField(call, action.objectId);
+                if (field == null) {
+                    return command;
+                }
+                if (!field.focused) {
+                    await clickField(call, action.objectId, field);
+                    // The hand goes from the mouse to the keys.
+                    await sleep(randomBetween(random, 250, 600));
+                }
+                if (action.type === 'clear' && !field.empty) {
+                    await eraseField(call);
+                }
+                return withNoScript(command);
+            }
+            case 'scrollIntoView':
+                await scrollIntoView(call, { objectId: action.objectId });
+                return withNoScript(command);
+            case 'scrollBy':
+                await wheelBy(call, action);
+                return withNoScript(command);
+            case 'revealThenEvaluate':
+                await revealProbed(call, action.probe);
+                return command;
+            default:
+                return assertNever(action);
+        }
+    }
+
+    async function readField(call: PageCommand, objectId: string): Promise<TextField | undefined> {
+        const reply = await sendCommand(call, 'Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: READ_FIELD,
+            returnByValue: true,
+        });
+        const result = isPlainObject(reply) ? reply['result'] : undefined;
+        const value = isPlainObject(result) ? result['value'] : undefined;
+        if (!isPlainObject(value)) {
+            return undefined;
+        }
+        return { focused: value['focused'] === true, empty: value['empty'] === true, line: value['line'] === true };
+    }
+
+    /**
+     * Clicks a text field, wheeled into view first: in a one-line field with text, to the right of the text, so the
+     * caret lands at its end, as where a script's focus leaves it matters to what is typed next.
+     */
+    async function clickField(call: PageCommand, objectId: string, field: TextField) {
+        await scrollIntoView(call, { objectId });
+        const quads = await sendCommand(call, 'DOM.getContentQuads', { objectId });
+        const box = readBox(quads);
+        if (box == null) {
+            throw new Error('The field to focus has no box');
+        }
+        const centre = { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+        let point = centre;
+        if (field.line && !field.empty) {
+            const end = { x: box.right - Math.min(10, (box.right - box.left) / 4), y: centre.y };
+            const hit = await sendCommand(call, 'Runtime.callFunctionOn', {
+                objectId,
+                functionDeclaration: HITS_POINT,
+                arguments: [{ value: end.x }, { value: end.y }],
+                returnByValue: true,
+            });
+            const result = isPlainObject(hit) ? hit['result'] : undefined;
+            point = isPlainObject(result) && result['value'] === true ? end : centre;
+        }
+        for (const type of ['mousePressed', 'mouseReleased']) {
+            const params = { type, ...point, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 };
+            const last = await performMouse({
+                ...call,
+                command: { method: 'Input.dispatchMouseEvent', params, sessionId: call.sessionId },
+            });
+            await sendCommand(call, last.method, last.params);
+        }
+    }
+
+    /**
+     * Selects the focused field's text with the platform's select-all chord and presses Backspace. On macOS Chrome
+     * runs the editing command of a key sent over CDP only when it is named.
+     */
+    async function eraseField(call: PageCommand) {
+        const mac = process.platform === 'darwin';
+        const modifier = mac
+            ? { key: 'Meta', code: 'MetaLeft', windowsVirtualKeyCode: 91, bit: 4 }
+            : { key: 'Control', code: 'ControlLeft', windowsVirtualKeyCode: 17, bit: 2 };
+        const { key, code, windowsVirtualKeyCode, bit } = modifier;
+        const keyA = { key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: bit };
+        const backspace = { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 };
+        await pressKey(call, { type: 'rawKeyDown', key, code, windowsVirtualKeyCode, modifiers: bit });
+        await sleep(randomBetween(random, 40, 120));
+        await pressKey(call, { type: 'rawKeyDown', ...keyA, ...(mac ? { commands: ['selectAll'] } : {}) });
+        await pressKey(call, { type: 'keyUp', ...keyA });
+        await sleep(randomBetween(random, 20, 80));
+        await pressKey(call, { type: 'keyUp', key, code, windowsVirtualKeyCode, modifiers: 0 });
+        await sleep(randomBetween(random, 100, 300));
+        await pressKey(call, { type: 'rawKeyDown', ...backspace, ...(mac ? { commands: ['deleteBackward'] } : {}) });
+        await pressKey(call, { type: 'keyUp', ...backspace });
+    }
+
+    /** Sends a key event the hand makes, spaced as a typist's (`performKey`). */
+    async function pressKey(call: PageCommand, params: KeyParams) {
+        const last = await performKey({
+            ...call,
+            command: { method: 'Input.dispatchKeyEvent', params: { ...params }, sessionId: call.sessionId },
+        });
+        await sendCommand(call, last.method, last.params);
+    }
+
+    /** Wheels a node into view (`performScroll`), then sends the scroll into view that finishes what the wheel left. */
+    async function scrollIntoView(call: PageCommand, params: Record<string, unknown>) {
+        const last = await performScroll({
+            ...call,
+            command: { method: 'DOM.scrollIntoViewIfNeeded', params, sessionId: call.sessionId },
+        });
+        await sendCommand(call, last.method, last.params);
+    }
+
+    /** A scroll by an amount, wheeled at the cursor, or at the centre of the element it scrolls when in view. */
+    async function wheelBy(call: PageCommand, action: Extract<HandAction, { type: 'scrollBy' }>) {
+        const { objectId, deltaX, deltaY } = action;
+        let at = await findCursor(call);
+        if (objectId != null) {
+            const box = readBox(await sendCommand(call, 'DOM.getContentQuads', { objectId }));
+            const viewport = await readViewport(call);
+            if (box != null && box.top >= 0 && box.bottom <= viewport.height) {
+                at = { x: Math.round((box.left + box.right) / 2), y: Math.round((box.top + box.bottom) / 2) };
+            }
+        }
+        const params = { type: 'mouseWheel', ...at, deltaX, deltaY };
+        const last = await performMouse({
+            ...call,
+            command: { method: 'Input.dispatchMouseEvent', params, sessionId: call.sessionId },
+        });
+        await sendCommand(call, last.method, last.params);
+        await waitForScrollToSettle(call);
+    }
+
+    /**
+     * Runs the probe of an evaluation that would scroll an element into view itself: when it gives the element, the
+     * element is out of view and is wheeled in, so the evaluation then finds it in view and does not scroll.
+     */
+    async function revealProbed(call: PageCommand, probe: string) {
+        const reply = await sendCommand(call, 'Runtime.evaluate', { expression: probe, returnByValue: false });
+        const result = isPlainObject(reply) ? reply['result'] : undefined;
+        const objectId = isPlainObject(result) ? result['objectId'] : undefined;
+        if (typeof objectId !== 'string') {
+            return;
+        }
+        try {
+            if (isPlainObject(result) && result['subtype'] === 'node') {
+                await scrollIntoView(call, { objectId });
+            }
+        } finally {
+            await sendCommand(call, 'Runtime.releaseObject', { objectId });
+        }
+    }
+
     /** Waits until two readings of the page's scroll, 50 ms apart, agree: a wheel scrolls smoothly, over time. */
     async function waitForScrollToSettle(call: PageCommand) {
         let before = await readScroll(call);
@@ -606,4 +822,30 @@ function readKeyName(params: Record<string, unknown>) {
         return key;
     }
     return typeof code === 'string' ? code : '';
+}
+
+/** A client's script call with its script taken out: what it answers is what an empty script returns. */
+function withNoScript(command: CdpRequest): CdpRequest {
+    const params =
+        command.method === 'Runtime.evaluate'
+            ? { ...command.params, expression: NO_EXPRESSION }
+            : { ...command.params, functionDeclaration: NO_FUNCTION };
+    return { ...command, params };
+}
+
+/** The box around the first quad of a `DOM.getContentQuads` reply, in the viewport; none for a node with no layout. */
+function readBox(reply: unknown) {
+    const quads = isPlainObject(reply) ? reply['quads'] : undefined;
+    const quad: unknown = Array.isArray(quads) ? quads[0] : undefined;
+    if (!Array.isArray(quad) || quad.length < 8) {
+        return undefined;
+    }
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const [index, value] of quad.entries()) {
+        if (typeof value === 'number') {
+            (index % 2 === 0 ? xs : ys).push(value);
+        }
+    }
+    return { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
 }
