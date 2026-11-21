@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -31,7 +31,6 @@ const EXTENSION_DIR = path.join(import.meta.dir, '../../chrome-extension');
 const HOST_NAME = 'com.flaneur.own_chrome';
 /**
  * Windows: where Chrome for Testing looks for the host is not documented; the host is registered under each candidate.
- * The first is the one `connectOwnChrome` registers again on every connect.
  */
 const REGISTRY_KEYS = [
     'HKCU\\Software\\Google\\Chrome for Testing\\NativeMessagingHosts',
@@ -62,7 +61,7 @@ test('with no flaneur extension in Chrome, gives up after the time limit saying 
     await chrome.whenStarted(pages, 'user');
 
     await expect(chrome.connect(5000)).rejects.toThrow(
-        /did not connect to flaneur within 5 s: the flaneur extension is not installed or not running in this Chrome\. Install it from https:\/\/\S+\./,
+        /did not connect to flaneur within 5 s: the flaneur extension is not installed or not running in this browser\. Open your browser with the extension, or install it from https:\/\/\S+\./,
     );
 }, 60_000);
 
@@ -73,6 +72,8 @@ test('drives agent tabs unseen and visible in the background, sees only the tabs
 
     // Scope "all": the user's tabs, open before the session and opened during it.
     const first = await chrome.connect();
+    // The host recorded which browser the extension runs in, so flaneur can start it again.
+    expect(await realpath(await chrome.readRememberedExecutable())).toBe(await realpath(chromium.executablePath()));
     await first.cdp.send('Target.setDiscoverTargets', { discover: true });
     const userA = findTarget(readTargets(await first.cdp.send('Target.getTargets', {})), pages.url('user-a'));
     await chrome.openTab(pages.url('user-b'));
@@ -411,11 +412,12 @@ async function startChrome(options: StartChromeOptions) {
         await setSettings(options.settings);
     }
 
-    for (const registryKey of process.platform === 'win32' ? REGISTRY_KEYS : [undefined]) {
-        await registerNativeHost({ dataDir, chromeUserDataDir: profileDir, registryKey });
-        if (registryKey != null) {
-            cleanups.push(() => execFileAsync('reg', ['delete', `${registryKey}\\${HOST_NAME}`, '/f']).catch(() => {}));
-        }
+    // A browser folder that does not exist is skipped, so Chrome's profile folder is made first.
+    await mkdir(profileDir, { recursive: true });
+    const registryKeys = process.platform === 'win32' ? REGISTRY_KEYS : [];
+    await registerNativeHost({ dataDir, browserDataDirs: [profileDir], registryKeys });
+    for (const registryKey of registryKeys) {
+        cleanups.push(() => execFileAsync('reg', ['delete', `${registryKey}\\${HOST_NAME}`, '/f']).catch(() => {}));
     }
 
     const chrome = Bun.spawn(
@@ -433,7 +435,16 @@ async function startChrome(options: StartChromeOptions) {
         await chrome.exited;
     });
 
-    return { connect, serve, setSettings, openTab, whenStarted };
+    return { connect, serve, setSettings, openTab, whenStarted, readRememberedExecutable };
+
+    /** The executable the host wrote to `browser.json`, which it does once it listens; it is there once flaneur connected. */
+    async function readRememberedExecutable() {
+        const file = path.join(dataDir, 'own-chrome', 'browser.json');
+        await waitUntil(() => existsSync(file), { timeoutMs: 5000 });
+        const record: unknown = JSON.parse(await readFile(file, 'utf8'));
+        assert(isPlainObject(record) && typeof record['executable'] === 'string', 'browser.json names an executable');
+        return record['executable'];
+    }
 
     /** Waits for the first page Chrome opens; a Chrome that never shows it fails the test with the end of its log. */
     async function whenStarted(pages: TestPages, page: string) {
@@ -459,9 +470,9 @@ async function startChrome(options: StartChromeOptions) {
         const { logger } = createTestLogger('OwnChrome');
         const browser = await connectOwnChrome({
             dataDir,
-            chromeUserDataDir: profileDir,
-            registryKey: REGISTRY_KEYS[0],
-            launchChrome: false,
+            browserDataDirs: [profileDir],
+            registryKeys: REGISTRY_KEYS,
+            launchBrowser: false,
             timeoutMs,
             logger,
         });

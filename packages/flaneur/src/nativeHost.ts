@@ -12,16 +12,23 @@
  *   the host exits, Chrome closes the port and the extension connects again with a fresh host. A client that never
  *   spoke frees its place.
  * - Exits when Chrome closes its stdin; leaves when another host (another Chrome profile) already serves the socket.
+ * - Once it listens, it writes the executable of the browser that started it to `browser.json` beside it, so flaneur can
+ *   start that browser again. Finding it runs beside the bridge and only ever logs a failure.
  */
+import { execFile } from 'node:child_process';
 import { rmSync } from 'node:fs';
+import { readlink, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 /** Chrome refuses a message from the host above 1 MB and closes the port. */
 const MAX_TO_CHROME_BYTES = 1024 * 1024;
 const FRAME_HEADER_BYTES = 4;
 const NEWLINE = 0x0a;
+
+const execFileAsync = promisify(execFile);
 
 const address = getHostAddress();
 /** The connected client, and whether it spoke: only then does Chrome's traffic reach it. */
@@ -48,7 +55,58 @@ async function listen() {
     server.on('error', error => exit(`The socket failed: ${error.message}`));
     server.listen(address, () => {
         listening = true;
+        void recordBrowser();
     });
+}
+
+/** Writes `browser.json`, `{ "executable": "<absolute path>" }`; only the listening host does. */
+async function recordBrowser() {
+    try {
+        const executable = await findBrowserExecutable();
+        if (!executable || !path.isAbsolute(executable)) {
+            log('The browser executable could not be determined');
+            return;
+        }
+        await writeFile(path.join(import.meta.dirname, 'browser.json'), JSON.stringify({ executable }), {
+            mode: 0o600,
+        });
+    } catch (error) {
+        log(`Finding the browser failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * The executable of the process that started this host: its parent (macOS, Linux), or its grandparent on Windows, where
+ * the parent is the `cmd.exe` running the batch launcher.
+ */
+async function findBrowserExecutable() {
+    switch (process.platform) {
+        case 'darwin': {
+            const { stdout } = await execFileAsync('ps', ['-o', 'comm=', '-p', String(process.ppid)]);
+            // A process started by a bare name (`chromium` through PATH) is listed under that name; the first file it has
+            // mapped is its executable.
+            return path.isAbsolute(stdout.trim()) ? stdout.trim() : await findMappedExecutable(process.ppid);
+        }
+        case 'linux':
+            return await readlink(`/proc/${process.ppid}/exe`);
+        case 'win32': {
+            const script =
+                `$parent = (Get-CimInstance Win32_Process -Filter 'ProcessId=${process.ppid}').ParentProcessId; ` +
+                '(Get-CimInstance Win32_Process -Filter "ProcessId=$parent").ExecutablePath';
+            const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script]);
+            return stdout.trim();
+        }
+        default:
+            return undefined;
+    }
+}
+
+async function findMappedExecutable(pid: number) {
+    const { stdout } = await execFileAsync('lsof', ['-a', '-p', String(pid), '-d', 'txt', '-Fn']);
+    return stdout
+        .split('\n')
+        .find(line => line.startsWith('n/'))
+        ?.slice(1);
 }
 
 function onClient(socket: net.Socket) {

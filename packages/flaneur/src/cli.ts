@@ -9,6 +9,7 @@ import { PrettyCliLoggerTransport } from '@nzyme/logging/PrettyCliLoggerTranspor
 import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
 
 import { ServeCommand } from './ServeCommand.js';
+import { SetupCommand } from './SetupCommand.js';
 
 initialize();
 
@@ -21,7 +22,7 @@ await execute({
     name: 'flaneur',
     title: 'A stealth Chrome for AI agents',
     version: readVersion(),
-    commands: [ServeCommand],
+    commands: [ServeCommand, SetupCommand],
     container,
 });
 

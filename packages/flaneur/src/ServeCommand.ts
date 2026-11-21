@@ -1,4 +1,3 @@
-import os from 'node:os';
 import path from 'node:path';
 
 import { Option } from '@nzyme/cli-core';
@@ -8,6 +7,8 @@ import { assertNever } from '@nzyme/utils/assertNever.js';
 import { connectOwnChrome } from './connectOwnChrome.js';
 import { createSitePace } from './createSitePace.js';
 import { findChrome } from './findChrome.js';
+import { getCliNativeHostTargets } from './getCliNativeHostTargets.js';
+import { getDataDir } from './getDataDir.js';
 import { installChromeForTesting } from './installChromeForTesting.js';
 import { parseChromeOption } from './parseChromeOption.js';
 import type { ChromeOption } from './parseChromeOption.js';
@@ -15,9 +16,6 @@ import { serveBrowser } from './serveBrowser.js';
 import type { StealthBrowserServer } from './serveBrowser.js';
 import { serveStealthBrowser } from './serveStealthBrowser.js';
 import { startVpnTunnel } from './startVpnTunnel.js';
-
-/** The folder the CLI keeps its profile and Chrome for Testing in. */
-const DATA_FOLDER = 'flaneur';
 
 /**
  * The CLI's default command: launches a stealth Chrome and serves it until Chrome exits or the process is stopped.
@@ -82,7 +80,14 @@ export class ServeCommand extends Command {
         const pace = this.pace ? createSitePace() : undefined;
         if (chrome.type === 'own') {
             this.checkOwnChromeOptions();
-            const browser = await connectOwnChrome({ dataDir, pace, logger: this.logger });
+            const { browserDataDirs, registryKeys } = await getCliNativeHostTargets({ dataDir });
+            const browser = await connectOwnChrome({
+                dataDir,
+                browserDataDirs,
+                registryKeys,
+                pace,
+                logger: this.logger,
+            });
             try {
                 return await this.serve(await serveBrowser(browser, { port, logger: this.logger }));
             } catch (error) {
@@ -204,16 +209,4 @@ function parsePort(value: string) {
         throw new Error(`--port is not a port: ${value}`);
     }
     return port;
-}
-
-/** This computer's per-user app data folder for the CLI. */
-function getDataDir() {
-    switch (process.platform) {
-        case 'darwin':
-            return path.join(os.homedir(), 'Library', 'Application Support', DATA_FOLDER);
-        case 'win32':
-            return path.join(process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local'), DATA_FOLDER);
-        default:
-            return path.join(process.env['XDG_DATA_HOME'] ?? path.join(os.homedir(), '.local', 'share'), DATA_FOLDER);
-    }
 }

@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,6 +8,8 @@ import { promisify } from 'node:util';
 
 import { afterEach, expect, test } from 'bun:test';
 
+import { assert } from '@nzyme/utils/assert.js';
+import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
 import { waitFor } from '@nzyme/utils/waitFor.js';
 import { waitUntil } from '@nzyme/utils/waitUntil.js';
 
@@ -110,6 +112,36 @@ test('closes a client whose message exceeds what Chrome accepts, sending Chrome 
     expect(chrome.received).toEqual([HELLO]);
 });
 
+test('once it listens, records the executable that started it, and a host that finds the socket served does not touch it', async () => {
+    const dataDir = await createDataDir();
+    const file = path.join(dataDir, 'own-chrome', 'browser.json');
+    const first = await startHost(dataDir);
+    await connectClient(first.address);
+    await waitUntil(() => existsSync(file), { timeoutMs: 5000 });
+    const executable = await readExecutable(file);
+
+    // Here the host's parent is this process; on Windows it is the batch launcher's `cmd.exe` in production, so the host
+    // started directly here names this process's parent instead.
+    if (process.platform === 'win32') {
+        expect(path.isAbsolute(executable)).toBe(true);
+    } else {
+        expect(await realpath(executable)).toBe(await realpath(process.execPath));
+    }
+
+    const sentinel = JSON.stringify({ executable: 'sentinel' });
+    await writeFile(file, sentinel);
+    const second = await startHost(dataDir);
+    expect(await second.exited).toBe(0);
+
+    expect(await readFile(file, 'utf8')).toBe(sentinel);
+});
+
+async function readExecutable(file: string) {
+    const record: unknown = JSON.parse(await readFile(file, 'utf8'));
+    assert(isPlainObject(record) && typeof record['executable'] === 'string', 'browser.json names an executable');
+    return record['executable'];
+}
+
 async function createDataDir() {
     const dataDir = await mkdtemp(path.join(os.tmpdir(), 'flaneur-host-'));
     cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
@@ -120,8 +152,8 @@ async function createDataDir() {
 async function startHost(dataDir: string) {
     const { address } = await registerNativeHost({
         dataDir,
-        chromeUserDataDir: path.join(dataDir, 'chrome'),
-        registryKey: TEST_REGISTRY_KEY,
+        browserDataDirs: [],
+        registryKeys: [TEST_REGISTRY_KEY],
     });
     if (process.platform === 'win32') {
         cleanups.push(() => execFileAsync('reg', ['delete', TEST_REGISTRY_ROOT, '/f']).catch(() => {}));
