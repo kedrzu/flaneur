@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises';
+
 import { errors, test } from 'playwright/test';
 import type { Page, TestInfo } from 'playwright/test';
 
@@ -49,6 +51,10 @@ export interface CreateJourneyStepParams {
 export const OUTCOME_ANNOTATION = 'outcome';
 
 /** How long an optional step's action looks for its target. */
+/** How long a challenge on the page gets to solve itself before the step counts as challenged. */
+const CHALLENGE_RESOLVE_MS = 20_000;
+const CHALLENGE_POLL_MS = 1000;
+
 export const OPTIONAL_STEP_TIMEOUT_MS = 3000;
 
 /** The step name of the challenge check after a journey's last step. */
@@ -105,7 +111,7 @@ export function createJourneyStep({ page, testInfo, actionTimeout, timeline }: C
         });
 
     async function runStep(name: string, action: () => Promise<void>, options: JourneyStepOptions) {
-        failOnChallenge(name, await readPageFacts(page));
+        await failOnLastingChallenge(name);
 
         if (options.optional) {
             page.setDefaultTimeout(OPTIONAL_STEP_TIMEOUT_MS);
@@ -127,6 +133,20 @@ export function createJourneyStep({ page, testInfo, actionTimeout, timeline }: C
                 page.setDefaultTimeout(actionTimeout);
             }
         }
+    }
+
+    /**
+     * Fails the step on a challenge that does not go away by itself: Kasada's `ips.js`, Cloudflare's and AWS WAF's
+     * JavaScript challenges solve themselves and reload the page within seconds, as the panel probe allows for.
+     */
+    async function failOnLastingChallenge(name: string) {
+        const deadline = Date.now() + CHALLENGE_RESOLVE_MS;
+        let facts = await readPageFacts(page);
+        while (facts != null && findChallenge(facts) != null && Date.now() < deadline) {
+            await sleep(CHALLENGE_POLL_MS);
+            facts = await readPageFacts(page);
+        }
+        failOnChallenge(name, facts);
     }
 
     function failOnChallenge(name: string, facts: PageFacts | null) {

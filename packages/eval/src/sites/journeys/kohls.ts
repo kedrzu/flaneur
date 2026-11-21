@@ -17,7 +17,7 @@ export const kohls = defineJourney({
         });
         await step('search', async () => {
             await submitSearch(page.getByRole('searchbox', { name: 'What are you looking for today?' }), 'towels');
-            await expect(page).toHaveURL(/\/search\.jsp\?search=towels/);
+            await expect(page).toHaveURL(/\/search\.jsp\?(.*&)?search=towels/);
         });
         await step('open a product', async () => {
             await openLink(page.locator('a[href*="/product/prd-"]').first());

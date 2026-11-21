@@ -88,6 +88,11 @@ test('an ordinary Cloudflare-fronted page, with only the jsd script, is not a ch
     expect(findChallenge(page)).toBeNull();
 });
 
+test("Akamai's challenge container is a challenge only on a near-empty page, as ordinary kohls.com pages carry it", () => {
+    expect(findChallenge(facts({ akamaiChallenge: true, textLength: 20 }))?.vendor).toBe('Akamai');
+    expect(findChallenge(facts({ akamaiChallenge: true, textLength: REAL_TEXT }))).toBeNull();
+});
+
 function facts(overrides: Partial<PageFacts>): PageFacts {
     return {
         url: 'https://example.com/',

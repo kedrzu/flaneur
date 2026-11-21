@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.walmart.com/';
@@ -20,7 +19,7 @@ export const walmart = defineJourney({
             await expect(page).toHaveURL(/\/search\?q=towels/);
         });
         await step('open a product', async () => {
-            await openLink(page.locator('a[href*="/ip/"]').first());
+            await page.locator('a[href*="/ip/"]').first().click();
             await expect(page).toHaveURL(/\/ip\//);
             await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
         });

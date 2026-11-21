@@ -112,7 +112,12 @@ export function findChallenge(facts: PageFacts): FoundChallenge | null {
     if (facts.title === 'Access Denied' || /Reference #\d/.test(facts.textStart)) {
         return { vendor: 'Akamai', evidence: `Akamai "Access Denied" page` };
     }
-    if (facts.akamaiChallenge || facts.scripts.some(src => src.includes('/_sec/cp_challenge/'))) {
+    // Ordinary pages may carry the challenge container and script too (kohls.com, 2026-11-21), so only a near-empty
+    // page around them is the challenge.
+    if (
+        (facts.akamaiChallenge || facts.scripts.some(src => src.includes('/_sec/cp_challenge/'))) &&
+        facts.textLength < MIN_REAL_TEXT
+    ) {
         return { vendor: 'Akamai', evidence: 'Akamai challenge page' };
     }
     // Kasada: its challenge page is empty but for `ips.js`, which solves the challenge and reloads the page.

@@ -438,7 +438,11 @@ test("a client's init scripts of a world come after the proxy's prelude for that
 
     const sent = browser.sent.map(command => {
         const params = isPlainObject(command.params) ? command.params : {};
-        return [command.sessionId, params['worldName'], params['source'] === WORLD_PRELUDE ? 'prelude' : params['source']];
+        return [
+            command.sessionId,
+            params['worldName'],
+            params['source'] === WORLD_PRELUDE ? 'prelude' : params['source'],
+        ];
     });
     expect(sent).toEqual([
         ['s-a', ISOLATED_WORLD_NAME, 'prelude'],
