@@ -19,8 +19,9 @@
         "**/*.gen.d.ts",
         // The `kedrzu/nzyme` submodule, linted by its own config (see the top of this file).
         "nzyme/**",
-        // The eval's test shop: untyped vanilla JS served as is to browsers, outside the TypeScript build, so
-        // type-aware rules see every DOM value as `any`.
-        "packages/eval/shop/**"
+        // The eval's test shop and the sites selftest's mini shop: untyped vanilla JS served as is to browsers,
+        // outside the TypeScript build, so type-aware rules see every DOM value as `any`.
+        "packages/eval/shop/**",
+        "packages/eval/src/sites/selftest/pages/**"
     ]
 }

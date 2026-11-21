@@ -1,5 +1,5 @@
-import { findChallengeVendor } from 'flaneur';
-
+import { MIN_REAL_TEXT, READ_PAGE_FACTS, findChallenge, parsePageFacts } from './classifyChallenge.js';
+import type { PageFacts } from './classifyChallenge.js';
 import { asArray, asNumber, asObject, asOneOf, asString, asStringArray } from './jsonShape.js';
 import type { EvalDriver, PanelOutcome, PanelSiteResult, PanelVendor } from './StealthEvalTypes.js';
 
@@ -7,21 +7,6 @@ import type { EvalDriver, PanelOutcome, PanelSiteResult, PanelVendor } from './S
 export interface RunPanelProbeParams {
     driver: EvalDriver;
     label: string;
-}
-
-/** What the page shows, read in one evaluation; `classifyPanelPage` decides from it. */
-export interface PanelPageFacts {
-    title: string;
-    /** The length of the body's visible text. */
-    textLength: number;
-    /** The start of the body's visible text, for markers in the text of a block page. */
-    textStart: string;
-    scripts: string[];
-    iframes: string[];
-    /** Whether HUMAN's `#px-captcha` is on the page. */
-    pxCaptcha: boolean;
-    /** Whether Akamai's challenge container (`#sec-container`, `#sec-if-container`) is on the page. */
-    akamaiChallenge: boolean;
 }
 
 /** Where the page stands: on the real site, behind a vendor's marker, or neither yet (still loading or empty). */
@@ -62,12 +47,6 @@ const PANEL_SITES: PanelSite[] = [
  */
 const CHALLENGE_TIMEOUT_MS = 30_000;
 const POLL_MS = 2000;
-/**
- * The visible text a real home page has at least, so a page still loading or a blank one is not taken for the site.
- * Length alone does not tell block pages from real ones: Medium's real home page had 229 characters, Indeed's block page
- * 409. The vendors' markers decide those; this only rules out the near-empty.
- */
-const MIN_REAL_TEXT = 150;
 const OUTCOMES: readonly PanelOutcome[] = ['through', 'challenged', 'error'];
 const VENDORS: readonly PanelVendor[] = ['Cloudflare', 'Akamai', 'HUMAN', 'Kasada', 'DataDome'];
 
@@ -92,19 +71,6 @@ const VENDOR_COOKIES = [
     'datadome',
 ];
 
-const READ_FACTS = `(() => {
-    const text = document.body?.innerText ?? '';
-    return {
-        title: document.title,
-        textLength: text.trim().length,
-        textStart: text.trim().slice(0, 600),
-        scripts: [...document.scripts].map(script => script.src).filter(Boolean),
-        iframes: [...document.querySelectorAll('iframe')].map(iframe => iframe.src).filter(Boolean),
-        pxCaptcha: document.querySelector('#px-captcha') != null,
-        akamaiChallenge: document.querySelector('#sec-container, #sec-if-container') != null,
-    };
-})()`;
-
 /**
  * The vendor panel (stealth-browsing D6): loads every site once, waits up to 30 s for a JavaScript challenge to resolve, and
  * records whether the real site rendered, the marker that decided it and the vendors' cookies. Nothing is clicked or
@@ -122,7 +88,7 @@ export async function runPanelProbe(params: RunPanelProbeParams): Promise<PanelS
 
     async function loadSite(site: PanelSite): Promise<PanelSiteResult> {
         const startedAt = Date.now();
-        let facts: PanelPageFacts | null = null;
+        let facts: PageFacts | null = null;
         let state: PanelPageState = { state: 'unclear', evidence: 'not loaded' };
         try {
             await driver.open(site.url);
@@ -132,7 +98,7 @@ export async function runPanelProbe(params: RunPanelProbeParams): Promise<PanelS
             let readError: Error | null = null;
             for (;;) {
                 try {
-                    facts = parsePanelPageFacts(await driver.evaluate(READ_FACTS));
+                    facts = parsePageFacts(await driver.evaluate(READ_PAGE_FACTS));
                     state = classifyPanelPage(facts);
                     readError = null;
                 } catch (error) {
@@ -182,10 +148,10 @@ export async function runPanelProbe(params: RunPanelProbeParams): Promise<PanelS
  * Any vendor's marker counts, not only the expected vendor's: a site may sit behind more than one.
  * @__NO_SIDE_EFFECTS__
  */
-export function classifyPanelPage(facts: PanelPageFacts): PanelPageState {
-    const marker = findChallengeMarker(facts);
-    if (marker != null) {
-        return { state: 'challenged', evidence: marker };
+export function classifyPanelPage(facts: PageFacts): PanelPageState {
+    const challenge = findChallenge(facts);
+    if (challenge != null) {
+        return { state: 'challenged', evidence: challenge.evidence };
     }
     if (facts.title !== '' && facts.textLength >= MIN_REAL_TEXT) {
         return { state: 'through', evidence: `title "${facts.title}", ${facts.textLength} characters` };
@@ -224,68 +190,4 @@ export function parsePanelResults(value: unknown): PanelSiteResult[] {
             elapsedMs: asNumber(result['elapsedMs'], `${at}.elapsedMs`),
         };
     });
-}
-
-/** A vendor's challenge or block marker on the page, described; `null` when there is none. */
-function findChallengeMarker(facts: PanelPageFacts) {
-    // DataDome: its CAPTCHA, interstitial or block page comes in an iframe; the page around it is empty.
-    const dataDome = facts.iframes.find(src => findChallengeVendor(src) === 'DataDome');
-    if (dataDome != null) {
-        return `DataDome iframe ${describeUrl(dataDome)}`;
-    }
-    // HUMAN: the "Press & Hold" page.
-    if (facts.pxCaptcha) {
-        return 'HUMAN #px-captcha';
-    }
-    if (facts.title === 'Access to this page has been denied') {
-        return `HUMAN title "${facts.title}"`;
-    }
-    // Cloudflare: the challenge page's orchestrating script. A normal page behind Cloudflare loads
-    // `/cdn-cgi/challenge-platform/scripts/jsd/main.js`, which has no `/orchestrate/`. The title is localised
-    // ("Just a moment...", "Cierpliwości...", "Security Check - Indeed.com"), so it is not the marker.
-    const cloudflare = facts.scripts.find(src => findChallengeVendor(src) === 'Cloudflare');
-    if (cloudflare != null) {
-        return `Cloudflare challenge script ${describeUrl(cloudflare)}`;
-    }
-    // Cloudflare's block page (a WAF rule, no challenge to solve), also in a site's own design as on Indeed: "You
-    // have been blocked … Your Ray ID for this request is …".
-    if (facts.textStart.includes('Ray ID') && /blocked/i.test(facts.textStart)) {
-        return 'Cloudflare block page (Ray ID)';
-    }
-    // Akamai: the edge's "Access Denied" page (with "Reference #18.…") or Bot Manager's challenge page.
-    if (facts.title === 'Access Denied' || /Reference #\d/.test(facts.textStart)) {
-        return `Akamai "Access Denied" page`;
-    }
-    if (facts.akamaiChallenge || facts.scripts.some(src => src.includes('/_sec/cp_challenge/'))) {
-        return 'Akamai challenge page';
-    }
-    // Kasada: its challenge page is empty but for `ips.js`, which solves the challenge and reloads the page.
-    const kasada = facts.scripts.find(src => src.includes('/ips.js') && /KP_UIDz|x-kpsdk/.test(src));
-    if (kasada != null && facts.textLength < MIN_REAL_TEXT) {
-        return 'Kasada ips.js on an empty page';
-    }
-    return null;
-}
-
-/** A URL's host and path, without the query (which carries the visitor's ids). */
-function describeUrl(url: string) {
-    try {
-        const parsed = new URL(url);
-        return `${parsed.host}${parsed.pathname}`;
-    } catch {
-        return url.slice(0, 100);
-    }
-}
-
-function parsePanelPageFacts(value: unknown): PanelPageFacts {
-    const facts = asObject(value, 'page facts');
-    return {
-        title: asString(facts['title'], 'title'),
-        textLength: asNumber(facts['textLength'], 'textLength'),
-        textStart: asString(facts['textStart'], 'textStart'),
-        scripts: asStringArray(facts['scripts'], 'scripts'),
-        iframes: asStringArray(facts['iframes'], 'iframes'),
-        pxCaptcha: facts['pxCaptcha'] === true,
-        akamaiChallenge: facts['akamaiChallenge'] === true,
-    };
 }

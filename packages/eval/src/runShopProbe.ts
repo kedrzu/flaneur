@@ -10,6 +10,8 @@ export interface RunShopProbeParams {
     driver: EvalDriver;
     pauseMs: number;
     label: string;
+    /** Where the shop is; `SHOP_URL` when not given. */
+    shopUrl?: string;
 }
 
 /** How long the last actions' tokens and assessments get once the visit is over. */
@@ -22,9 +24,9 @@ const READ_RESULTS = "JSON.parse(document.getElementById('eval-results').textCon
  * error and returns the visit as the shop recorded it. On timeout it returns what is there, pending actions included.
  */
 export async function runShopProbe(params: RunShopProbeParams): Promise<ShopVisit> {
-    const { driver, pauseMs, label } = params;
+    const { driver, pauseMs, label, shopUrl } = params;
     const startedAt = new Date();
-    await runScenario({ driver, steps: createShopScenario(startedAt), pauseMs, label });
+    await runScenario({ driver, steps: createShopScenario(startedAt, shopUrl), pauseMs, label });
 
     let visit = await readVisit();
     // A tab of its own starts a fresh visit (the shop keeps it in sessionStorage); an older one would mix in another run.

@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test';
 
 import { classifyPanelPage, filterVendorCookies } from './panel.js';
-import type { PanelPageFacts, PanelPageState } from './panel.js';
+import type { PageFacts } from './classifyChallenge.js';
+import type { PanelPageState } from './panel.js';
 
 test("a Cloudflare block page in the site's own design is told by its Ray ID", () => {
     const indeed = facts({
@@ -81,13 +82,15 @@ test('vendor cookies are kept by exact name or prefix, each once', () => {
     expect(filterVendorCookies(names)).toEqual(['__cf_bm', '_px3', '_pxhd', 'bm_sz', 'ak_bmsc', 'datadome', 'KP_UIDz']);
 });
 
-function facts(overrides: Partial<PanelPageFacts>): PanelPageFacts {
+function facts(overrides: Partial<PageFacts>): PageFacts {
     return {
+        url: 'https://example.com/',
         title: '',
         textLength: 0,
         textStart: '',
         scripts: [],
         iframes: [],
+        formActions: [],
         pxCaptcha: false,
         akamaiChallenge: false,
         ...overrides,

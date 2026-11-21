@@ -30,7 +30,9 @@
         "clean": "del \"**/dist\" \"**/.nx\" \"**/.nzyme\" \"**/*.tsbuildinfo\" \"!**/node_modules/**\"",
         "clean:npm": "del \"**/node_modules\"",
         "reinstall": "bun run clean && bun run clean:npm && bun install",
-        "eval": "bun run --cwd packages/eval eval"
+        "eval": "bun run --cwd packages/eval eval",
+        "eval:sites": "bun run --cwd packages/eval eval:sites",
+        "eval:sites:selftest": "bun run --cwd packages/eval eval:sites:selftest"
     },
     "devDependencies": {
         "@nzyme/cli": "workspace:*",
