@@ -1,6 +1,7 @@
 import type { CdpRequest } from './CdpTypes.js';
+import type { ExecutionContexts } from './createExecutionContexts.js';
 import { ISOLATED_WORLD_NAME } from './createIsolatedWorlds.js';
-import type { ClientWorld, IsolatedCall, IsolatedWorlds } from './createIsolatedWorlds.js';
+import type { ClientWorld, IsolatedCall } from './createIsolatedWorlds.js';
 
 /** What the proxy does with a request that passed its other checks. */
 export type StealthDecision =
@@ -8,8 +9,12 @@ export type StealthDecision =
     | { type: 'forward'; method: string; params: Record<string, unknown>; sessionId?: string }
     /** Run it in an isolated world: the proxy's, or the client's own it named (`IsolatedWorlds.send`). */
     | { type: 'isolate'; call: IsolatedCall }
-    /** Create the client's own isolated world on `sessionId` and remember it (`IsolatedWorlds.createClientWorld`). */
+    /** Create the client's own isolated world on `sessionId` and give it an id (`ExecutionContexts.createWorld`). */
     | { type: 'createWorld'; world: ClientWorld; sessionId: string }
+    /** Tell the client of the contexts of `sessionId` (`ExecutionContexts.enable`); the browser's Runtime stays off. */
+    | { type: 'enableRuntime'; sessionId: string }
+    /** Stop telling the client of the contexts of `sessionId` (`ExecutionContexts.disable`). */
+    | { type: 'disableRuntime'; sessionId: string }
     /** Answer the client with `result` without touching the browser. */
     | { type: 'reply'; result: object }
     /** Answer the client with a CDP error carrying `message`. */
@@ -53,8 +58,9 @@ const REFUSED_METHODS: Record<string, string> = {
  * Applies the proxy's stealth rules to a request that passed the session, target and policy checks. Page scripts must
  * never observe a client's code: an enabled Runtime, Console or Debugger domain is measurable from the page (an
  * Error logged while Runtime is enabled has its stack formatted, which calls the page's `Error.prepareStackTrace`), so
- * the proxy answers their `enable` and `disable` itself and never sends them; every evaluation, resolved node and init
- * script goes to an isolated world (`ISOLATED_WORLD_NAME`, or one the client created itself), never the page's own;
+ * the proxy answers their `enable` and `disable` itself and never sends them (Runtime's on a session tells the client
+ * of the proxy's own execution contexts, `createExecutionContexts`); every evaluation, resolved node and init script
+ * goes to an isolated world (`ISOLATED_WORLD_NAME`, or one the client created itself), never the page's own;
  * Runtime is open only by method (`RUNTIME_METHODS`), Console and Debugger not at all. The user agent is the proxy's
  * (`createBrandOverride`): Emulation's and Network's `setUserAgentOverride` are refused, as a client's override would
  * replace the brand while its session lives. A `javascript:` URL is refused where it would be navigated to, as it runs
@@ -62,10 +68,7 @@ const REFUSED_METHODS: Record<string, string> = {
  * proxy's own state (`REFUSED_METHODS`).
  * @__NO_SIDE_EFFECTS__
  */
-export function checkStealthRequest(
-    request: CdpRequest,
-    worlds: Pick<IsolatedWorlds, 'findClientWorld'>,
-): StealthDecision {
+export function checkStealthRequest(request: CdpRequest, contexts: Pick<ExecutionContexts, 'find'>): StealthDecision {
     const { method, params, sessionId } = request;
     const domain = method.slice(0, method.indexOf('.'));
     if (Object.hasOwn(REFUSED_METHODS, method)) {
@@ -74,17 +77,19 @@ export function checkStealthRequest(
 
     switch (method) {
         case 'Runtime.enable':
+            return sessionId == null ? { type: 'reply', result: {} } : { type: 'enableRuntime', sessionId };
         case 'Runtime.disable':
+            return sessionId == null ? { type: 'reply', result: {} } : { type: 'disableRuntime', sessionId };
         case 'Console.enable':
         case 'Console.disable':
         case 'Debugger.enable':
         case 'Debugger.disable':
             return { type: 'reply', result: {} };
         case 'Runtime.evaluate':
-            return checkIsolated(request, 'contextId', worlds);
+            return checkIsolated(request, 'contextId', contexts);
         case 'Runtime.callFunctionOn':
         case 'DOM.resolveNode':
-            return checkIsolated(request, 'executionContextId', worlds);
+            return checkIsolated(request, 'executionContextId', contexts);
         case 'Page.createIsolatedWorld':
             return checkCreateWorld(request);
         case 'Runtime.addBinding':
@@ -131,8 +136,9 @@ export function checkStealthRequest(
  * A call that runs code or creates an object in an execution context: the proxy always picks the context, never
  * forwarding a number. A context id is not proof of a world: Chrome reuses ids across renderer processes, so an id an
  * isolated world had can name the page's own world after a cross-site navigation. So with no context named the call
- * goes to the proxy's isolated world, and an id the client was given for a world it created stands for that world,
- * which is created again by frame and name; any other id is refused. A call on an object (`Runtime.callFunctionOn` with
+ * goes to the proxy's isolated world, and an id the proxy gave the client (`ExecutionContexts.find`) stands for its
+ * isolated world, which is created again by frame and name; an id of a worker's context, of a document gone, or any
+ * other id is refused, and none reaches the browser. A call on an object (`Runtime.callFunctionOn` with
  * `objectId`) runs where the object lives: a client calls functions on objects its own isolated calls returned, and an
  * object a page event carries lives in the page's world, which a client set on reaching it can reach through the DOM
  * anyway.
@@ -140,7 +146,7 @@ export function checkStealthRequest(
 function checkIsolated(
     request: CdpRequest,
     contextParam: IsolatedCall['contextParam'],
-    worlds: Pick<IsolatedWorlds, 'findClientWorld'>,
+    contexts: Pick<ExecutionContexts, 'find'>,
 ): StealthDecision {
     const { method, sessionId } = request;
     if (sessionId == null) {
@@ -156,14 +162,17 @@ function checkIsolated(
             ? forward(request)
             : { type: 'isolate', call: { method, params, sessionId, contextParam } };
     }
-    const world = typeof contextId === 'number' ? worlds.findClientWorld(sessionId, contextId) : undefined;
-    if (world == null || params['objectId'] != null) {
+    const context = typeof contextId === 'number' ? contexts.find(sessionId, contextId) : undefined;
+    if (context?.type === 'worker') {
+        return reject(`${method}: Code cannot run in a worker`);
+    }
+    if (context == null || params['objectId'] != null) {
         return reject(
             `${method}: code runs only in isolated worlds, so ${contextParam} must name one you created ` +
-                'with Page.createIsolatedWorld',
+                'with Page.createIsolatedWorld or one announced for the current document',
         );
     }
-    return { type: 'isolate', call: { method, params, sessionId, contextParam, world } };
+    return { type: 'isolate', call: { method, params, sessionId, contextParam, world: context.world } };
 }
 
 /**

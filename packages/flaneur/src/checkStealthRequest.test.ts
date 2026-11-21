@@ -2,18 +2,30 @@ import { expect, test } from 'bun:test';
 
 import { checkStealthRequest } from './checkStealthRequest.js';
 import type { StealthDecision } from './checkStealthRequest.js';
+import type { ExecutionContext } from './createExecutionContexts.js';
 import { ISOLATED_WORLD_NAME } from './createIsolatedWorlds.js';
 import type { ClientWorld } from './createIsolatedWorlds.js';
 
-/** The world the client created on `s-a`, which it was given context id 7 for. */
+/** The world the client created on `s-a`, which it was given context id 7 for; 9 is the context of a worker. */
 const OWN_WORLD: ClientWorld = { frameId: 'f', worldName: 'own', grantUniveralAccess: true };
-const WORLDS = {
-    findClientWorld: (sessionId: string, contextId: number) =>
-        sessionId === 's-a' && contextId === 7 ? OWN_WORLD : undefined,
+const CONTEXTS = {
+    find(sessionId: string, contextId: number): ExecutionContext | undefined {
+        if (sessionId !== 's-a') {
+            return undefined;
+        }
+        switch (contextId) {
+            case 7:
+                return { type: 'world', world: OWN_WORLD };
+            case 9:
+                return { type: 'worker' };
+            default:
+                return undefined;
+        }
+    },
 };
 
 function check(method: string, params: Record<string, unknown> = {}, sessionId?: string) {
-    return checkStealthRequest(sessionId == null ? { method, params } : { method, params, sessionId }, WORLDS);
+    return checkStealthRequest(sessionId == null ? { method, params } : { method, params, sessionId }, CONTEXTS);
 }
 
 test.each([
@@ -81,16 +93,21 @@ test('the Runtime methods a client reads pages with go out', () => {
     expect(check('Runtime.runIfWaitingForDebugger', {}, 's-a').type).toBe('forward');
 });
 
-test.each([
-    'Runtime.enable',
-    'Runtime.disable',
-    'Console.enable',
-    'Console.disable',
-    'Debugger.enable',
-    'Debugger.disable',
-])('%s is answered without reaching the browser', method => {
-    const expected: StealthDecision = { type: 'reply', result: {} };
-    expect(check(method, {}, 's-a')).toEqual(expected);
+test.each(['Console.enable', 'Console.disable', 'Debugger.enable', 'Debugger.disable'])(
+    '%s is answered without reaching the browser',
+    method => {
+        const expected: StealthDecision = { type: 'reply', result: {} };
+        expect(check(method, {}, 's-a')).toEqual(expected);
+    },
+);
+
+test("Runtime's enable and disable on a session are the proxy's own contexts, never the browser's Runtime", () => {
+    const enabled: StealthDecision = { type: 'enableRuntime', sessionId: 's-a' };
+    const disabled: StealthDecision = { type: 'disableRuntime', sessionId: 's-a' };
+    expect(check('Runtime.enable', {}, 's-a')).toEqual(enabled);
+    expect(check('Runtime.disable', {}, 's-a')).toEqual(disabled);
+    const answered: StealthDecision = { type: 'reply', result: {} };
+    expect(check('Runtime.enable')).toEqual(answered);
 });
 
 test.each([
@@ -119,6 +136,8 @@ test.each([
         ]) {
             expect(check(method, { ...params, ...named }, 's-a')).toMatchObject({ type: 'reject' });
         }
+        // A worker's context runs no code of a client.
+        expect(check(method, { ...params, [contextParam]: 9 }, 's-a')).toMatchObject({ type: 'reject' });
         // A world is the client's on the session it created it on; with no session there is no page to run in.
         expect(check(method, { ...params, [contextParam]: 7 }, 's-b')).toMatchObject({ type: 'reject' });
         expect(check(method, params)).toMatchObject({ type: 'reject' });

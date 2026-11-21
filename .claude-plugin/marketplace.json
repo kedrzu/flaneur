@@ -8,7 +8,7 @@
         {
             "name": "flaneur",
             "source": "./plugin",
-            "description": "Browse real websites like a person: a stealth Chrome driven over CDP with agent-browser",
+            "description": "Browse real websites like a person: a stealth Chrome driven over CDP with agent-browser or Playwright",
             "category": "productivity"
         }
     ]

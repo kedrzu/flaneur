@@ -274,15 +274,17 @@ never on. The proxy's stealth rules run after the session and target checks and 
 > still block.
 
 **Consequences.** The agent loses agent-browser's `console`, `errors` and `expose`, and cannot read the page's JS
-globals (isolated worlds share the DOM, not globals). Playwright and Puppeteer do not work, since both need an enabled
-Runtime. Site helpers work through the DOM; calling a site's internal API with its own client code (X's per-request
+globals (isolated worlds share the DOM, not globals). Playwright works through context events the proxy emulates
+(2026-11-21, [playwright-compatibility](../../decisions/playwright-compatibility.md)), within the same limits. Site
+helpers work through the DOM; calling a site's internal API with its own client code (X's per-request
 header) is out.
 
 **Rejected.**
 
 - Hiding only `Runtime.enable` — main-world execution, init scripts, bindings and workers still leak.
 - Emulating context events for clients (rebrowser's approach) — agent-browser consumes none, so dropping the enable
-  suffices.
+  suffices. *Reopened 2026-11-21: Playwright consumes them; the proxy now emulates them from isolated worlds
+  ([playwright-compatibility](../../decisions/playwright-compatibility.md)).*
 - A narrow main-world exception for site helpers — it is a trace; the owner chose none.
 - Patching agent-browser instead of the proxy — covers one client; the rule must hold for all ([D4](#d4)).
 
