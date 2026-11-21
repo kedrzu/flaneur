@@ -13,7 +13,7 @@ import { addCooldown, COOLDOWN_FILE, readCooldowns, writeCooldowns } from './sit
 import {
     FINAL_URL_ANNOTATION,
     formatSiteRows,
-    SHOP_SCORE_ANNOTATION,
+    SCORE_ANNOTATION,
     SITE_ANNOTATION,
     summarizeSites,
     VENDOR_ANNOTATION,
@@ -44,7 +44,7 @@ export default class ConsistencyReporter implements Reporter {
         const site = annotation(SITE_ANNOTATION);
         const url = annotation(FINAL_URL_ANNOTATION);
         const timeline = annotation(TIMELINE_ANNOTATION);
-        const shopScore = Number(annotation(SHOP_SCORE_ANNOTATION));
+        const score = Number(annotation(SCORE_ANNOTATION));
         const parsedOutcome = outcome == null ? undefined : parseOutcome(outcome);
         const parsedTimeline = timeline == null ? undefined : parseTimeline(timeline);
         this.records.push({
@@ -61,7 +61,7 @@ export default class ConsistencyReporter implements Reporter {
                 file == null ? [] : [{ name, path: file }],
             ),
             ...(parsedTimeline == null ? {} : { timeline: parsedTimeline }),
-            ...(Number.isFinite(shopScore) ? { shopScore } : {}),
+            ...(Number.isFinite(score) ? { score } : {}),
         });
     }
 

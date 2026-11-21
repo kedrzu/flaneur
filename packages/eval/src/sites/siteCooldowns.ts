@@ -7,7 +7,7 @@ import { SITES_STATE_FOLDER } from './serveSitesBrowser.js';
 
 // A site that challenged or refused flaneur is left alone for a while across runs, not only within one (flaneur's pace
 // forgets when its browser closes): the next run would otherwise hit it again from an IP it has just flagged. The
-// reporter, in the runner process, is the one writer; `sites.spec.ts` reads the store when the tests are collected.
+// reporter, in the runner process, is the one writer; `describeSite` reads the store when the tests are collected.
 
 /** A site's cooldown. */
 export interface SiteCooldown {

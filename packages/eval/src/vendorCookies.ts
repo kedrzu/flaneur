@@ -40,6 +40,10 @@ const VENDOR_COOKIES = [
     'datadome',
     // AWS WAF
     'aws-waf-token',
+    // Imperva
+    'visid_incap_*',
+    'incap_ses_*',
+    'reese84',
 ];
 
 /**

@@ -3,8 +3,11 @@ import { findChallengeVendor } from 'flaneur';
 import { asNumber, asObject, asString, asStringArray } from './jsonShape.js';
 import type { PanelVendor } from './StealthEvalTypes.js';
 
-/** The vendors whose challenge or block page `findChallenge` tells: the panel's, plus the CAPTCHA and robot-check pages sites show on their own. */
-export type ChallengeVendor = PanelVendor | 'reCAPTCHA' | 'hCaptcha' | 'Turnstile' | 'Amazon';
+/**
+ * The vendors the eval measures: the panel's, AWS WAF and Imperva, plus the CAPTCHA and robot-check pages sites show on
+ * their own. `findChallenge` tells the challenge or block page of each.
+ */
+export type ChallengeVendor = PanelVendor | 'AWS WAF' | 'Imperva' | 'reCAPTCHA' | 'hCaptcha' | 'Turnstile' | 'Amazon';
 
 /** A vendor's marker found on a page. */
 export interface FoundChallenge {
@@ -116,6 +119,21 @@ export function findChallenge(facts: PageFacts): FoundChallenge | null {
     const kasada = facts.scripts.find(src => src.includes('/ips.js') && /KP_UIDz|x-kpsdk/.test(src));
     if (kasada != null && facts.textLength < MIN_REAL_TEXT) {
         return { vendor: 'Kasada', evidence: 'Kasada ips.js on an empty page' };
+    }
+    // AWS WAF: its CAPTCHA script (`…captcha.awswaf.com/…/captcha.js`) on any page, or its challenge script
+    // (`…token.awswaf.com/…/challenge.js`) on a near-empty interstitial: real pages load the challenge script too.
+    const awsWaf = facts.scripts.find(src => /(^|\.)awswaf\.com$/.test(URL.parse(src)?.hostname ?? ''));
+    if (awsWaf != null && (awsWaf.includes('captcha') || facts.textLength < MIN_REAL_TEXT)) {
+        return { vendor: 'AWS WAF', evidence: `AWS WAF ${describeUrl(awsWaf)}` };
+    }
+    // Imperva (Incapsula): its challenge page loads `/_Incapsula_Resource` in an iframe or a script; its block page
+    // says "Request unsuccessful. Incapsula incident ID: …".
+    const imperva = [...facts.iframes, ...facts.scripts].find(src => src.includes('/_Incapsula_Resource'));
+    if (imperva != null) {
+        return { vendor: 'Imperva', evidence: `Imperva ${describeUrl(imperva)}` };
+    }
+    if (facts.textStart.includes('Incapsula incident ID')) {
+        return { vendor: 'Imperva', evidence: 'Imperva block page (incident ID)' };
     }
     // reCAPTCHA v2: the challenge frame, or the checkbox's anchor frame. The v3 badge is an anchor frame with
     // `size=invisible`, on ordinary pages, so it is not a marker.

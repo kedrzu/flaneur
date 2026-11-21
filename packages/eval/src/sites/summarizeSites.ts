@@ -9,8 +9,11 @@ export const SITE_ANNOTATION = 'site';
 /** The annotation type the URL a test's page ended on is recorded under. */
 export const FINAL_URL_ANNOTATION = 'finalUrl';
 
-/** The annotation type the shop visit's mean reCAPTCHA v3 score is recorded under, as a number in a string. */
-export const SHOP_SCORE_ANNOTATION = 'shopScore';
+/**
+ * The annotation type a test's reCAPTCHA v3 score is recorded under, as a number in a string: the shop visit's mean, or
+ * the score a CAPTCHA demo page showed.
+ */
+export const SCORE_ANNOTATION = 'score';
 
 /** The project the others are compared with: a plain headless Chromium. */
 const CONTROL_PROJECT = 'headless';
@@ -51,7 +54,7 @@ export interface AttemptRecord {
     durationMs: number;
     attachments: AttemptAttachment[];
     timeline?: TimelineEntry[];
-    shopScore?: number;
+    score?: number;
 }
 
 /** A journey's attempts in one project. */
@@ -74,8 +77,8 @@ export interface SiteRow {
     failingStep?: string;
     /** The evidence most failed attempts gave. */
     failingEvidence?: string;
-    /** Mean of the attempts' `shopScore`, when any has one. */
-    meanShopScore?: number;
+    /** Mean of the attempts' `score`, when any has one. */
+    meanScore?: number;
     /** The `headless` project ran this journey in this run and passed every attempt. */
     controlPasses: boolean;
 }
@@ -122,8 +125,8 @@ export function formatSiteRows(rows: readonly SiteRow[]): string {
             if (row.failingStep != null) {
                 parts.push(`step: ${row.failingStep}`);
             }
-            if (row.meanShopScore != null) {
-                parts.push(`score ${row.meanShopScore.toFixed(2)}`);
+            if (row.meanScore != null) {
+                parts.push(`score ${row.meanScore.toFixed(2)}`);
             }
             if (row.controlPasses) {
                 parts.push('control passes too');
@@ -151,7 +154,7 @@ function summarizeGroup(group: readonly AttemptRecord[], controlPassed: boolean)
         failures.flatMap(({ outcome }) => (outcome == null ? [] : [outcome.evidence])),
     );
 
-    const scores = group.flatMap(record => (record.shopScore == null ? [] : [record.shopScore]));
+    const scores = group.flatMap(record => (record.score == null ? [] : [record.score]));
     const protectionVendor = group.find(record => record.vendor != null)?.vendor;
 
     return {
@@ -166,9 +169,7 @@ function summarizeGroup(group: readonly AttemptRecord[], controlPassed: boolean)
         challengeVendors,
         ...(failingStep == null ? {} : { failingStep }),
         ...(failingEvidence == null ? {} : { failingEvidence }),
-        ...(scores.length === 0
-            ? {}
-            : { meanShopScore: scores.reduce((sum, score) => sum + score, 0) / scores.length }),
+        ...(scores.length === 0 ? {} : { meanScore: scores.reduce((sum, score) => sum + score, 0) / scores.length }),
         controlPasses: first?.project !== CONTROL_PROJECT && controlPassed,
     };
 }

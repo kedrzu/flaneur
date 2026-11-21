@@ -56,6 +56,29 @@ test("Amazon's robot check is told by its form action or title", () => {
     expect(findChallenge(facts({ title: 'Amazon.com', formActions: ['https://www.amazon.com/s'] }))).toBeNull();
 });
 
+test("AWS WAF's CAPTCHA is a challenge anywhere, its challenge script only on a near-empty page", () => {
+    const captcha = ['https://abc.def.captcha.awswaf.com/abc/def/jsapi.js'];
+    const challenge = ['https://abc.def.token.awswaf.com/abc/def/challenge.js'];
+
+    expect(findChallenge(facts({ scripts: captcha, textLength: REAL_TEXT }))?.vendor).toBe('AWS WAF');
+    expect(findChallenge(facts({ scripts: challenge, textLength: 20 }))).toEqual({
+        vendor: 'AWS WAF',
+        evidence: 'AWS WAF abc.def.token.awswaf.com/abc/def/challenge.js',
+    });
+    expect(findChallenge(facts({ scripts: challenge, textLength: REAL_TEXT }))).toBeNull();
+});
+
+test("Imperva's challenge resource or its incident text is a challenge; an ordinary page is not", () => {
+    const challenge = facts({ iframes: ['https://www.example.com/_Incapsula_Resource?SWUDNSAI=31&xinfo=x'] });
+    const block = facts({ textStart: 'Request unsuccessful. Incapsula incident ID: 1234-5678' });
+    const page = facts({ textLength: REAL_TEXT, scripts: ['https://www.example.com/static/incapsula-guide.js'] });
+
+    const expected: FoundChallenge = { vendor: 'Imperva', evidence: 'Imperva www.example.com/_Incapsula_Resource' };
+    expect(findChallenge(challenge)).toEqual(expected);
+    expect(findChallenge(block)?.vendor).toBe('Imperva');
+    expect(findChallenge(page)).toBeNull();
+});
+
 test('an ordinary Cloudflare-fronted page, with only the jsd script, is not a challenge', () => {
     const page = facts({
         textLength: REAL_TEXT,

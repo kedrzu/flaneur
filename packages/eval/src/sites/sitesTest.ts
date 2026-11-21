@@ -1,3 +1,5 @@
+import { writeFile } from 'node:fs/promises';
+
 import { chromium, test } from 'playwright/test';
 import type { BrowserContext, TestInfo } from 'playwright/test';
 
@@ -109,20 +111,31 @@ export const sitesTest = test.extend<SitesTestFixtures, SitesWorkerFixtures>({
         await use(page);
         testInfo.annotations.push({ type: FINAL_URL_ANNOTATION, description: page.url() });
         if (hasFailed(testInfo)) {
-            // Playwright's own screenshot on failure only hooks contexts it creates for the test.
+            // Playwright's own screenshot on failure only hooks contexts it creates for the test. Both are attached by
+            // path: the reporter keeps an attachment's file, and one given as a body has none.
             try {
-                await testInfo.attach('screenshot', {
-                    body: await page.screenshot({ timeout: SCREENSHOT_TIMEOUT_MS }),
-                    contentType: 'image/png',
-                });
+                const screenshot = testInfo.outputPath('screenshot.png');
+                await page.screenshot({ path: screenshot, timeout: SCREENSHOT_TIMEOUT_MS });
+                await testInfo.attach('screenshot', { path: screenshot, contentType: 'image/png' });
             } catch {
                 // A closed or crashed page has nothing to show; the failure is reported all the same.
             }
             try {
                 const html = await withTimeout({ operation: page.content(), timeoutMs: HTML_TIMEOUT_MS });
-                await testInfo.attach('html', { body: html.slice(0, MAX_HTML_LENGTH), contentType: 'text/html' });
+                const file = testInfo.outputPath('page.html');
+                await writeFile(file, html.slice(0, MAX_HTML_LENGTH));
+                await testInfo.attach('html', { path: file, contentType: 'text/html' });
             } catch {
                 // As the screenshot: a page that cannot give its HTML (navigating, closed, hung) leaves none.
+            }
+            try {
+                // The accessibility tree is what a journey's `getByRole` locators match against.
+                const tree = await page.locator('body').ariaSnapshot({ timeout: HTML_TIMEOUT_MS });
+                const file = testInfo.outputPath('aria.yml');
+                await writeFile(file, tree);
+                await testInfo.attach('aria', { path: file, contentType: 'text/yaml' });
+            } catch {
+                // As the HTML.
             }
             failedPage.facts = await readPageFacts(page);
         }

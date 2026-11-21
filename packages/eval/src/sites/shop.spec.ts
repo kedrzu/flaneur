@@ -2,7 +2,7 @@ import { createPageDriver } from '../createPageDriver.js';
 import { runShopProbe } from '../runShopProbe.js';
 import { checkShopScore, summarizeShopScore } from './checkShopScore.js';
 import { sitesTest as test } from './sitesTest.js';
-import { SHOP_SCORE_ANNOTATION, VENDOR_ANNOTATION } from './summarizeSites.js';
+import { SCORE_ANNOTATION, VENDOR_ANNOTATION } from './summarizeSites.js';
 
 /**
  * The mean reCAPTCHA v3 score a visit must reach. The agent's browser averaged 0.68 and the plain headless Chromium
@@ -25,7 +25,7 @@ test(
 
         const summary = summarizeShopScore(visit);
         if (summary != null) {
-            testInfo.annotations.push({ type: SHOP_SCORE_ANNOTATION, description: String(summary.mean) });
+            testInfo.annotations.push({ type: SCORE_ANNOTATION, description: String(summary.mean) });
         }
         checkShopScore(visit, SHOP_SCORE_THRESHOLD);
     },

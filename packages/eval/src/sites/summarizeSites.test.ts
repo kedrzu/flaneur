@@ -51,14 +51,14 @@ test('the control passes too only when headless ran the journey and passed every
     expect(controlPassed(rows, 'skipped')).toBe(false);
 });
 
-test('a passing attempt that carries an outcome is not counted in any class, and shop scores are averaged', () => {
+test('a passing attempt that carries an outcome is not counted in any class, and scores are averaged', () => {
     const rows = summarizeSites([
-        attempt({ outcome: { class: 'challenged', vendor: 'Turnstile', step: 'x', evidence: 'e' }, shopScore: 0.9 }),
-        attempt({ shopScore: 0.5 }),
+        attempt({ outcome: { class: 'challenged', vendor: 'Turnstile', step: 'x', evidence: 'e' }, score: 0.9 }),
+        attempt({ score: 0.5 }),
         attempt({}),
     ]);
 
-    expect(rows[0]).toMatchObject({ passed: 3, challenged: 0, challengeVendors: {}, meanShopScore: 0.7 });
+    expect(rows[0]).toMatchObject({ passed: 3, challenged: 0, challengeVendors: {}, meanScore: 0.7 });
     expect(rows[0]?.failingStep).toBeUndefined();
 });
 
