@@ -63,6 +63,26 @@ measurement is the owner's choice after the rightsize review)
 - Fixing only the CDP leaks the measurement shows, stealth inside each client, and in-page JS patches — as in the
   forms above.
 
+Retired 2026-11-21, partly replaced: the input layer moved from "built once the eval shows sites react" to "built
+regardless" by the owner; the rest holds in [D4](../DECISIONS.md#d4).
+
+**Stealth is built in flaneur's CDP proxy, in layers every browser client gets. Built regardless of measurement: the
+launch flag ([D3](../DECISIONS.md#d3)), the guarantee that page scripts never observe our code
+([D8](../DECISIONS.md#d8)), pace ([D5](../DECISIONS.md#d5)) and the "Google Chrome" brand set over CDP on every target,
+workers included. Built only once the eval shows sites react to it: input (mouse paths and per-key typing generated
+from the agent's clicks and text).** (2026-11-15, design agent proposal; the split by measurement is the owner's choice
+after the rightsize review; the brand moved to the first group by the owner on 2026-11-16)
+
+**Why.** As in the first form above.
+
+**Rejected.**
+
+- Building the input layer up front — no evidence that it affects blocks; the agent already scores as the person does.
+- Waiting for evidence before building the brand — the measurement-first rule the owner set on 2026-11-15; he
+  dropped it for the brand once it was the last known leak.
+- Fixing only the CDP leaks the measurement shows, stealth inside each client, and in-page JS patches — as in the
+  forms above.
+
 ## D11
 
 Retired 2026-11-15, partly replaced: the page now assesses each token itself and keeps the score; the rest holds in

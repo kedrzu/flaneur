@@ -1,24 +1,34 @@
 import os from 'node:os';
 import path from 'node:path';
 
-import { installChromeForTesting, serveStealthBrowser } from 'flaneur';
-import type { SitePace } from 'flaneur';
+import { findChrome, installChromeForTesting, serveStealthBrowser } from 'flaneur';
+import type { HumanInput, SitePace } from 'flaneur';
 import type { FullConfig } from 'playwright/test';
 
 import { createLogger, setLoggerTransport } from '@nzyme/logging/createLogger.js';
 import { consoleLog } from '@nzyme/logging/LoggerTransport.js';
+import type { Logger } from '@nzyme/logging/Logger.js';
+import { assert } from '@nzyme/utils/assert.js';
 
 /** The environment variable that hands flaneur's CDP endpoint from the global setup to the workers. */
 export const SITES_ENDPOINT_VARIABLE = 'FLANEUR_SITES_ENDPOINT';
 
+/** `installed` runs the installed Google Chrome instead of Chrome for Testing. */
+const SITES_CHROME_VARIABLE = 'FLANEUR_SITES_CHROME';
+
 /** The eval's own state folder, so a person's own flaneur profile is never touched. */
 export const SITES_STATE_FOLDER = path.join(os.homedir(), '.flaneur-eval');
+
+/** Where the sites runs are saved as `<startedAt>-sites.json`, beside the stealth eval's runs. */
+export const SITES_RESULTS_FOLDER = path.join(SITES_STATE_FOLDER, 'results');
 
 /** How the run's flaneur is started. */
 export interface ServeSitesBrowserOptions {
     /** The Chrome profile; one browser at a time may open it. */
     userDataDir: string;
     pace: SitePace;
+    /** Human-like input for every client, as the CLI gives it; none: the clients' input passes unchanged. */
+    input?: HumanInput;
 }
 
 /**
@@ -43,17 +53,32 @@ export async function serveSitesBrowser(
     });
     const logger = createLogger('flaneur');
 
-    const chrome = await installChromeForTesting({
-        cacheDir: path.join(SITES_STATE_FOLDER, 'chrome-for-testing'),
-        logger,
-    });
+    const executablePath = await findSitesChrome(logger);
     const server = await serveStealthBrowser({
-        executablePath: chrome.executablePath,
+        executablePath,
         userDataDir: options.userDataDir,
         pace: options.pace,
+        ...(options.input == null ? {} : { input: options.input }),
         logger,
     });
     process.env[SITES_ENDPOINT_VARIABLE] = server.endpoint;
 
     return () => server.close();
+}
+
+/**
+ * The Chrome the run drives: the pinned Chrome for Testing, or with `FLANEUR_SITES_CHROME=installed` the Google Chrome
+ * installed on this computer, as the CLI serves by default.
+ */
+async function findSitesChrome(logger: Logger) {
+    if (process.env[SITES_CHROME_VARIABLE] === 'installed') {
+        const installed = findChrome();
+        assert(installed, 'FLANEUR_SITES_CHROME=installed, but Google Chrome is not installed');
+        return installed;
+    }
+    const chrome = await installChromeForTesting({
+        cacheDir: path.join(SITES_STATE_FOLDER, 'chrome-for-testing'),
+        logger,
+    });
+    return chrome.executablePath;
 }

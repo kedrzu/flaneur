@@ -6,7 +6,8 @@ import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
 import { CdpError } from './CdpTypes.js';
 import type { CdpEvent, CdpPolicy, CdpRequest } from './CdpTypes.js';
 import { connectClient } from './connectClient.js';
-import { ISOLATED_WORLD_NAME } from './createIsolatedWorlds.js';
+import type { HumanInputRun } from './createHumanInput.js';
+import { ISOLATED_WORLD_NAME, WORLD_PRELUDE } from './createIsolatedWorlds.js';
 import { createSessionRegistry } from './createSessionRegistry.js';
 import type { SessionRegistry } from './createSessionRegistry.js';
 import { ATTACH_SITE_PACE, createSitePace } from './createSitePace.js';
@@ -401,12 +402,14 @@ test('with Runtime enabled, the browser never gets it, and every call naming a c
             params: { frameId: 'f-main', worldName: ISOLATED_WORLD_NAME, grantUniveralAccess: false },
             sessionId: 's-a',
         },
+        { method: 'Runtime.evaluate', params: { expression: WORLD_PRELUDE, contextId: 1000 }, sessionId: 's-a' },
         { method: 'Runtime.evaluate', params: { expression: '1', contextId: 1000 }, sessionId: 's-a' },
         {
             method: 'Page.createIsolatedWorld',
             params: { frameId: 'f-main', worldName: 'utility-pw', grantUniveralAccess: true },
             sessionId: 's-a',
         },
+        { method: 'Runtime.evaluate', params: { expression: WORLD_PRELUDE, contextId: 1001 }, sessionId: 's-a' },
         { method: 'DOM.resolveNode', params: { backendNodeId: 5, executionContextId: 1001 }, sessionId: 's-a' },
     ]);
     browser.sent.length = 0;
@@ -422,6 +425,35 @@ test('with Runtime enabled, the browser never gets it, and every call naming a c
         'announced for the current document',
     );
     expect(browser.sent).toEqual([{ method: 'Page.getFrameTree', params: {}, sessionId: 's-worker' }]);
+});
+
+test("a client's init scripts of a world come after the proxy's prelude for that world, registered once per session", async () => {
+    const { browser, client, registry } = prepare({ answer: answerPage });
+    registry.claimSession({ type: 'client', clientId: 'c-a' }, 's-a2', 't-a');
+
+    await client.call('Page.addScriptToEvaluateOnNewDocument', { source: 'one' }, 's-a');
+    await client.call('Page.addScriptToEvaluateOnNewDocument', { source: 'two' }, 's-a');
+    await client.call('Page.addScriptToEvaluateOnNewDocument', { source: '', worldName: 'utility-pw' }, 's-a');
+    await client.call('Page.addScriptToEvaluateOnNewDocument', { source: 'three' }, 's-a2');
+
+    const sent = browser.sent.map(command => {
+        const params = isPlainObject(command.params) ? command.params : {};
+        return [
+            command.sessionId,
+            params['worldName'],
+            params['source'] === WORLD_PRELUDE ? 'prelude' : params['source'],
+        ];
+    });
+    expect(sent).toEqual([
+        ['s-a', ISOLATED_WORLD_NAME, 'prelude'],
+        ['s-a', ISOLATED_WORLD_NAME, 'one'],
+        ['s-a', ISOLATED_WORLD_NAME, 'two'],
+        ['s-a', 'utility-pw', 'prelude'],
+        ['s-a', 'utility-pw', ''],
+        ['s-a2', ISOLATED_WORLD_NAME, 'prelude'],
+        ['s-a2', ISOLATED_WORLD_NAME, 'three'],
+    ]);
+    expect(browser.sent[0]?.params).toMatchObject({ runImmediately: true });
 });
 
 test("a new document's contexts reach the client right after its frameNavigated, before any later event", async () => {
@@ -507,10 +539,45 @@ test("lifecycle events are enabled once the client has the session's frame tree,
     expect(client.messages.map(message => message['id'] ?? message['method'])).toEqual([1, 2, 'Page.lifecycleEvent']);
 });
 
+test("human input sends its own commands first in the session's line, held to the stealth rules, and the client gets the reply of the command it sends last", async () => {
+    let refusal: unknown;
+    const input: Pick<HumanInputRun, 'perform'> = {
+        async perform(command, send) {
+            if (command.method !== 'Input.dispatchMouseEvent' || command.sessionId == null) {
+                return command;
+            }
+            await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }, command.sessionId);
+            await send('Runtime.enable', {}, command.sessionId).catch((error: unknown) => {
+                refusal = error;
+            });
+            return { ...command, params: { ...command.params, x: 11 } };
+        },
+    };
+    const { browser, client } = prepare({
+        input,
+        answer: command =>
+            command.method === 'Input.dispatchMouseEvent' ? Promise.resolve({ x: 'answered' }) : undefined,
+    });
+
+    const pressed = client.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: 10, y: 10 }, 's-a');
+    const next = client.call('Page.getFrameTree', {}, 's-a');
+    const reply = await pressed;
+    await next;
+
+    expect(browser.sent).toEqual([
+        { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 1, y: 1 }, sessionId: 's-a' },
+        { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: 11, y: 10 }, sessionId: 's-a' },
+        { method: 'Page.getFrameTree', params: {}, sessionId: 's-a' },
+    ]);
+    expect(reply['result']).toEqual({ x: 'answered' });
+    expect(refusal).toBeInstanceOf(Error);
+});
+
 /** What `prepare` builds a client with. */
 interface PrepareOptions {
     policy?: CdpPolicy<string>;
     pace?: Pick<SitePaceRun, 'gate'>;
+    input?: Pick<HumanInputRun, 'perform'>;
     /** The registry to fill; a new one by default. */
     registry?: SessionRegistry;
     /** The fake browser's answer to a command; `undefined` leaves it to the default answers. */
@@ -603,6 +670,7 @@ function prepare(options: PrepareOptions) {
         },
         policy: options.policy,
         pace: options.pace,
+        input: options.input,
         logger: createTestLogger('test').logger,
     });
 

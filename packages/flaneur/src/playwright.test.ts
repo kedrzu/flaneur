@@ -48,6 +48,50 @@ const DETECTOR_SCRIPT = `
         document.getElementById('detections').textContent = JSON.stringify(detections);
     }, 50);`;
 
+/**
+ * Records, in `#events`, every event of Playwright's injected script the page's own capturing listeners get, a control
+ * event the test dispatches deliberately, and whether the page's `EventTarget.prototype.dispatchEvent` is still the
+ * native one. `replaceRoot()` replaces the document element, which Playwright's global-listeners check watches for.
+ */
+const EVENTS_SCRIPT = `
+    const seen = [];
+    const nativeDispatch = EventTarget.prototype.dispatchEvent;
+    const nativeText = Function.prototype.toString.call(nativeDispatch);
+    let ticks = 0;
+    for (const type of [
+        '__playwright_mark_target__',
+        '__playwright_reset_targets__',
+        '__playwright_global_listeners_check__',
+        'control-event',
+    ]) {
+        window.addEventListener(type, () => seen.push('window:' + type), true);
+        document.addEventListener(type, () => seen.push('document:' + type), true);
+    }
+    setInterval(() => {
+        const dispatch = EventTarget.prototype.dispatchEvent;
+        const native = dispatch === nativeDispatch && Function.prototype.toString.call(dispatch) === nativeText;
+        const report = document.getElementById('events');
+        if (report != null) {
+            report.textContent = JSON.stringify({ seen, native, ticks: ++ticks });
+        }
+    }, 50);
+    function replaceRoot() {
+        const root = document.createElement('html');
+        root.innerHTML = '<body><button id="after">After</button><pre id="events"></pre></body>';
+        root.querySelector('#after').addEventListener('click', event => { event.target.textContent = 'Clicked'; });
+        document.replaceChild(root, document.documentElement);
+    }`;
+
+/** What `EVENTS_SCRIPT` writes to its page. */
+interface PageEvents {
+    seen: string[];
+    native: boolean;
+    ticks: number;
+}
+
+/** What a page's listeners get of the control event, dispatched on an element: the window's, then the document's. */
+const CONTROL_EVENTS = ['window:control-event', 'document:control-event'];
+
 /** What `DETECTOR_SCRIPT` writes to its page. */
 interface Detections {
     runtime: number;
@@ -191,6 +235,39 @@ test(
                     timeoutMs: PLAYWRIGHT_TIMEOUT_MS,
                 });
                 expect(await readDetections(page)).toMatchObject({ runtime: 0, pw: false });
+            } finally {
+                await page.close();
+            }
+        });
+    },
+    TIMEOUT_MS,
+);
+
+test(
+    "the page's listeners never get Playwright's own DOM events, and its dispatchEvent stays native",
+    async () => {
+        await withPlaywright(served.endpoint, async browser => {
+            const page = await newPage(browser);
+            try {
+                await page.goto(`${pages.home}/events`);
+                expect(await page.$('#go')).not.toBeNull();
+                await page.locator('#field').fill('Ada');
+                await page.locator('#go').hover();
+                await page.locator('#go').click();
+                expect(await page.locator('#go').textContent()).toBe('Went Ada');
+                // An event a client dispatches on purpose reaches the page.
+                await page.locator('#go').dispatchEvent('control-event');
+                expect(await readPageEvents(page)).toEqual({ seen: CONTROL_EVENTS, native: true });
+
+                await page.goto(`${pages.home}/events?again`);
+                await page.locator('#field').fill('Bo');
+                await page.locator('#go').click();
+                expect(await page.locator('#go').textContent()).toBe('Went Bo');
+                await page.locator('#replace').click();
+                await page.locator('#after').click();
+                expect(await page.locator('#after').textContent()).toBe('Clicked');
+                await page.locator('#after').dispatchEvent('control-event');
+                expect(await readPageEvents(page)).toEqual({ seen: CONTROL_EVENTS, native: true });
             } finally {
                 await page.close();
             }
@@ -359,6 +436,32 @@ async function readDetections(page: Page): Promise<Detections> {
     };
 }
 
+/** The page's `#events` report once the page has written it again, a few times, after the call. */
+async function readPageEvents(page: Page): Promise<Omit<PageEvents, 'ticks'>> {
+    const ticks = (await readPageEventsReport(page)).ticks;
+    let report = await readPageEventsReport(page);
+    await waitUntil(
+        async () => {
+            report = await readPageEventsReport(page);
+            return report.ticks > ticks + 3;
+        },
+        { timeoutMs: PLAYWRIGHT_TIMEOUT_MS },
+    );
+    return { seen: report.seen, native: report.native };
+}
+
+async function readPageEventsReport(page: Page): Promise<PageEvents> {
+    const text = await page.evaluate("document.getElementById('events')?.textContent ?? ''");
+    const parsed: unknown = typeof text === 'string' && text !== '' ? JSON.parse(text) : {};
+    assert(isPlainObject(parsed), 'The page writes an object');
+    const { seen, native, ticks } = parsed;
+    return {
+        seen: Array.isArray(seen) ? seen.filter(entry => typeof entry === 'string') : [],
+        native: native === true,
+        ticks: typeof ticks === 'number' ? ticks : 0,
+    };
+}
+
 /** Serves the test's pages on `127.0.0.1`, reached by two hosts. */
 async function servePages(): Promise<Pages> {
     const server = createServer(handlePage);
@@ -397,6 +500,15 @@ function handlePage(request: IncomingMessage, response: ServerResponse) {
                     written.close();
                     ${DETECTOR_SCRIPT}
                 </script>`,
+            );
+        case '/events':
+            return sendHtml(
+                response,
+                `<title>Events</title><input id="field">
+                <button id="go" onclick="this.textContent = 'Went ' + document.getElementById('field').value">Go</button>
+                <button id="replace" onclick="replaceRoot()">Replace</button>
+                <pre id="events"></pre>
+                <script>${EVENTS_SCRIPT}</script>`,
             );
         case '/popup':
             return sendHtml(response, '<title>Popup</title><h1>Popup</h1>');

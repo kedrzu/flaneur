@@ -3,6 +3,8 @@ export type { CdpEvent, CdpPolicy, CdpPolicyClient, CdpPolicyResult, CdpRequest,
 export type { CdpClient } from './connectClient.js';
 export { connectOwnChrome } from './connectOwnChrome.js';
 export type { ConnectOwnChromeOptions } from './connectOwnChrome.js';
+export { createHumanInput } from './createHumanInput.js';
+export type { CreateHumanInputOptions, HumanInput, HumanInputClock } from './createHumanInput.js';
 export { createSitePace } from './createSitePace.js';
 export type { CreateSitePaceOptions, SitePace, SitePaceClock, SitePaceMessages } from './createSitePace.js';
 export type {

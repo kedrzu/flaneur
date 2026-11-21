@@ -8,5 +8,10 @@
     <h1>Before we continue...</h1>
     <p>Press and hold the button to confirm you are a human.</p>
     <div id="px-captcha"></div>
+    <script>
+      // The vendor cookies the selftest's timeline must report: an Akamai sensor not yet validated, and HUMAN's.
+      document.cookie = '_abck=A1B2C3~-1~YAAQ~-1~-1~-1; path=/';
+      document.cookie = '_px3=selftest; path=/';
+    </script>
   </body>
 </html>

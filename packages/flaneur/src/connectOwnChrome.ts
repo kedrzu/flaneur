@@ -9,6 +9,7 @@ import { waitFor } from '@nzyme/utils/waitFor.js';
 import { withTimeout } from '@nzyme/utils/withTimeout.js';
 
 import type { CdpPolicy } from './CdpTypes.js';
+import type { HumanInput } from './createHumanInput.js';
 import { createOwnChromeConnection } from './createOwnChromeConnection.js';
 import type { OwnChromeChannel } from './createOwnChromeConnection.js';
 import type { SitePace } from './createSitePace.js';
@@ -40,6 +41,8 @@ export interface ConnectOwnChromeOptions<D = unknown> {
     policy?: CdpPolicy<D>;
     /** The human pace kept on every site; none: nothing waits. */
     pace?: SitePace;
+    /** Performs every client's input as a person would; none: input goes as the client sent it. */
+    input?: HumanInput;
     logger?: Logger;
 }
 
@@ -99,6 +102,7 @@ export async function connectOwnChrome<D = unknown>(options: ConnectOwnChromeOpt
             brand: false,
             policy: options.policy,
             pace: options.pace,
+            input: options.input,
             logger,
         });
     } catch (error) {

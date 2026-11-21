@@ -1,7 +1,7 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
+import { clickIntoNewTab } from '../utils/clickIntoNewTab.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.etsy.com/';
@@ -27,10 +27,10 @@ export const etsy = defineJourney({
             await expect(page).toHaveURL(/\/search\?q=/);
         });
         await step('open a listing', async () => {
-            // Etsy opens listings in a new tab; the journey stays in one.
-            await openLink(page.locator('a[href*="/listing/"]').first());
-            await expect(page).toHaveURL(/\/listing\/\d+/);
-            await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+            // Etsy opens a listing in a new tab.
+            const listing = await clickIntoNewTab(page.locator('a[href*="/listing/"]').first(), step);
+            await expect(listing).toHaveURL(/\/listing\/\d+/);
+            await expect(listing.getByRole('heading', { level: 1 }).first()).toBeVisible();
         });
     },
 });

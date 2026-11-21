@@ -32,6 +32,7 @@
         "reinstall": "bun run clean && bun run clean:npm && bun install",
         "eval": "bun run --cwd packages/eval eval",
         "eval:sites": "bun run --cwd packages/eval eval:sites",
+        "eval:sites:history": "bun run --cwd packages/eval eval:sites:history",
         "eval:sites:selftest": "bun run --cwd packages/eval eval:sites:selftest"
     },
     "devDependencies": {

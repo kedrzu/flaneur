@@ -114,12 +114,12 @@ which launch with the same flag.
 
 ## D4
 
-**Stealth is built in flaneur's CDP proxy, in layers every browser client gets. Built regardless of measurement: the
-launch flag ([D3](#d3)), the guarantee that page scripts never observe our code ([D8](#d8)), pace ([D5](#d5)) and the
-"Google Chrome" brand set over CDP on every target, workers included. Built only once the eval shows sites react to
-it: input (mouse paths and per-key typing generated from the agent's clicks and text).** (2026-11-15, design agent
-proposal; the split by measurement is the owner's choice after the rightsize review; the brand moved to the first group
-by the owner on 2026-11-16)
+**Stealth is built in flaneur's CDP proxy, in layers every browser client gets, regardless of measurement: the launch
+flag ([D3](#d3)), the guarantee that page scripts never observe our code ([D8](#d8)), pace ([D5](#d5)), the "Google
+Chrome" brand set over CDP on every target, workers included, and human input (mouse paths, a dwell before a click,
+per-key typing and wheel scrolling generated from the agent's clicks, text and scrolls).** (2026-11-15, design agent
+proposal; the brand moved to this group by the owner on 2026-11-16, input on 2026-11-21, before the eval showed
+sites react to it)
 
 **Why.** Every CDP command already passes the proxy, so a fix there covers agent-browser, site helpers in any
 language, and anything later. Vendors document client-side JS fingerprinting first and behaviour second (HUMAN:
@@ -136,9 +136,18 @@ language, and anything later. Vendors document client-side JS fingerprinting fir
 > and indeed.com and kohls.com still block it for reasons not yet known. The owner chose to remove the last known leak
 > rather than wait for a site to show it matters.
 
+> **Checked 2026-11-21:** a Playwright click through flaneur is one `Input.dispatchMouseEvent mouseMoved` exactly at
+> the element's centre, then `mousePressed` and `mouseReleased` at the same instant; `fill` and agent-browser `type`
+> send `Input.insertText`, text with no key events; scrolling into view is `DOM.scrollIntoViewIfNeeded`, with no wheel
+> events; the first action comes a fraction of a second after the page loaded (CDP log, and the test shop's input
+> recording for both clients). Akamai, HUMAN, Kasada and reCAPTCHA sensors collect these signals. The owner chose to
+> build the input layer now rather than wait for the eval to show a site reacting
+> (`packages/flaneur/src/createHumanInput.ts`, on by default in the CLI).
+
 **Rejected.**
 
-- Building the input layer up front — no evidence that it affects blocks; the agent already scores as the person does
+- Waiting for the eval before building the input layer — the measurement-first rule of 2026-11-15; the owner
+  dropped it for input on 2026-11-21, as every client's input is a known machine pattern
   ([history](history/DECISIONS.md#d4)).
 - Waiting for evidence before building the brand — the measurement-first rule the owner set on 2026-11-15; he
   dropped it for the brand once it was the last known leak ([history](history/DECISIONS.md#d4)).
@@ -154,13 +163,15 @@ language, and anything later. Vendors document client-side JS fingerprinting fir
 **flaneur enforces a human pace on every site and backs off when a page shows a CAPTCHA or block. Pace: at most one
 page load per site every 5 seconds, shared by every client of the browser. A block is recognised passively, from the
 page events the proxy already relays to the client: a main document answered 403 or 429, or a request to a known
-challenge URL. After a first block the site gets a 5-minute pause and a doubled interval for an hour; a second block
-within the hour refuses further actions on that site and tells the agent to ask the person. A wait of up to about 15
+challenge URL. A block counts only once it lasts: when the same page reaches a 2xx or 3xx main document of the same
+site within 20 seconds, it got past a self-solving interstitial and nothing is counted; until then the site's commands
+go at the normal pace. After a first block the site gets a 5-minute pause and a doubled interval for an hour; a second
+block within the hour refuses further actions on that site and tells the agent to ask the person. A wait of up to about 15
 seconds is held silently; a longer one is refused with a message saying why and for how long, and the agent's
 instructions (the flaneur skill, or the host's own) say such a message is deliberate. A host hands one pace to every
 launch, so what it learned of blocks outlives a browser restart.** (2026-11-15, design agent proposal, owner agreed;
 adaptive from the first version is the owner's choice; values, recognition and the message chosen by the owner on
-2026-11-16 from the Allegro measurement)
+2026-11-16 from the Allegro measurement; the grace added on 2026-11-21 from the site eval)
 
 **Why.** Blocks after N actions come from volume per session and IP, which no fingerprint fix changes. Enforced in the
 proxy, the agent cannot skip it; telling the agent keeps it from treating the wait as a broken browser. A generic pace
@@ -168,7 +179,9 @@ fits "any site" ([D1](#d1)). Passive recognition sends nothing a page could obse
 command 30 seconds and shows a refusal's text to the agent, so a short hold fits inside a command and a long wait
 needs words. A navigation the agent writes in its own page script is counted when its document arrives but not
 held: the proxy gates the commands that load pages, and agent-browser's back and forward are such commands, but it
-does not read the agent's scripts.
+does not read the agent's scripts. A self-solving interstitial is not a block: the browser gets through, so refusing
+the next clicks for 5 minutes would only stall the agent; a CAPTCHA the agent cannot solve still counts, as its page
+never reaches a real document in time. Commands go while a block is pending because the page may be solving itself.
 
 > **Checked 2026-11-16:** Allegro from the owner's home connection, the agent's browser after the launch flag and the
 > isolated-world rule: 40 searches at 8-second intervals and 40 at 5-second intervals, each with results in about 1.3
@@ -178,6 +191,14 @@ does not read the agent's scripts.
 > **Checked 2026-11-16:** agent-browser v0.43.0 waits 30 seconds for a CDP reply (`cli/src/native/cdp/client.rs:801`)
 > and prints a CDP error's text, rewritten only when it contains "timeout" or "intercept"
 > (`cli/src/native/browser.rs:237-270`).
+
+> **Checked 2026-11-21:** the site eval on a fresh profile: Kasada answers the first visit to realestate.com.au and
+> chewy.com with a 429 page running `ips.js`, which solves a proof of work and reloads to the real page within
+> seconds; DataDome answers etsy.com with a 403 device check that reloads by itself. With every block counted at once,
+> the pace paused these sites after the browser had got through, and the agent's next clicks were refused for 5
+> minutes. Playwright 1.65.1 retries an action whose `Input.dispatchMouseEvent` gets a CDP error until its timeout
+> without showing the error (`retryWithProgressAndBackoff` retries every `ProtocolError` except a closed session), so
+> a refusal of an input command reaches a Playwright client only as a timeout.
 
 **Rejected.**
 
@@ -272,6 +293,25 @@ never on. The proxy's stealth rules run after the session and target checks and 
 > `waitForDebuggerOnStart` from several sessions starts only after all resume — so flaneur's own session holds each
 > target until its brand is set. After the brand, the public test pages report no leak; indeed.com and kohls.com
 > still block.
+
+> **Checked 2026-11-21:** DOM events dispatched from an isolated world travel the shared DOM to the page's own
+> listeners. Playwright 1.65's injected script dispatches `__playwright_reset_targets__` (on `document`) and
+> `__playwright_mark_target__` (on the target) for every locator action and `page.$`, and
+> `__playwright_global_listeners_check__` (on `window`) when the document element is replaced
+> (`InjectedScript.markTargetElements`, `_setupGlobalListenersRemovalDetection`); a main-world listener sees them. On
+> walmart.com (HUMAN), a raw-input visit that passed 3 of 3 times was challenged ("Robot or human?") once two extra
+> pairs of these events were dispatched before a click. The same day, `page.goto(url, { referer })` (`Page.navigate`
+> with `referrer`) sent `Sec-Fetch-Site: none` together with a `Referer` against a local server: a typed-URL
+> navigation that carries a referrer, which no browser sends; a real click sent `same-origin`.
+
+**Events and referrers (2026-11-21).** Every isolated world the proxy opens, or a client creates, runs the proxy's
+prelude before any client code: the proxy evaluates it in the world it opens before the call or reply, and registers
+it as the first init script of each world a client's init scripts use, on that session
+(`WORLD_PRELUDE`, `packages/flaneur/src/createIsolatedWorlds.ts`). It wraps that world's own
+`EventTarget.prototype.dispatchEvent` so an event whose type starts with `__playwright` or `__pw` is not dispatched;
+the page's prototype stays native. Only those internal prefixes: an event a client dispatches on purpose
+(`page.dispatchEvent`) reaches the page. A client's `Page.navigate` goes without its `referrer` and `referrerPolicy`,
+so it is consistently a typed one. Both are stealth rules no policy can lift.
 
 **Consequences.** The agent loses agent-browser's `console`, `errors` and `expose`, and cannot read the page's JS
 globals (isolated worlds share the DOM, not globals). Playwright works through context events the proxy emulates

@@ -2,6 +2,7 @@ import { MIN_REAL_TEXT, READ_PAGE_FACTS, findChallenge, parsePageFacts } from '.
 import type { PageFacts } from './classifyChallenge.js';
 import { asArray, asNumber, asObject, asOneOf, asString, asStringArray } from './jsonShape.js';
 import type { EvalDriver, PanelOutcome, PanelSiteResult, PanelVendor } from './StealthEvalTypes.js';
+import { filterVendorCookies } from './vendorCookies.js';
 
 /** How `runPanelProbe` runs. */
 export interface RunPanelProbeParams {
@@ -49,27 +50,6 @@ const CHALLENGE_TIMEOUT_MS = 30_000;
 const POLL_MS = 2000;
 const OUTCOMES: readonly PanelOutcome[] = ['through', 'challenged', 'error'];
 const VENDORS: readonly PanelVendor[] = ['Cloudflare', 'Akamai', 'HUMAN', 'Kasada', 'DataDome'];
-
-/** The vendors' cookies, by exact name or by prefix (`*`). */
-const VENDOR_COOKIES = [
-    // Cloudflare
-    '__cf_bm',
-    'cf_clearance',
-    '_cfuvid',
-    'cf_chl_*',
-    // Akamai Bot Manager
-    '_abck',
-    'ak_bmsc',
-    'bm_*',
-    'sec_cpt',
-    // HUMAN
-    '_px*',
-    'pxcts',
-    // Kasada
-    'KP_*',
-    // DataDome
-    'datadome',
-];
 
 /**
  * The vendor panel (stealth-browsing D6): loads every site once, waits up to 30 s for a JavaScript challenge to resolve, and
@@ -157,19 +137,6 @@ export function classifyPanelPage(facts: PageFacts): PanelPageState {
         return { state: 'through', evidence: `title "${facts.title}", ${facts.textLength} characters` };
     }
     return { state: 'unclear', evidence: `near-empty page: title "${facts.title}", ${facts.textLength} characters` };
-}
-
-/**
- * The names among `names` that are a protection vendor's cookies, each once, in order.
- * @__NO_SIDE_EFFECTS__
- */
-export function filterVendorCookies(names: string[]): string[] {
-    const matching = names.filter(name =>
-        VENDOR_COOKIES.some(pattern =>
-            pattern.endsWith('*') ? name.startsWith(pattern.slice(0, -1)) : name === pattern,
-        ),
-    );
-    return [...new Set(matching)];
 }
 
 /**

@@ -1,7 +1,7 @@
 import { expect } from 'playwright/test';
+import type { Page } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.kohls.com/';
@@ -17,24 +17,25 @@ export const kohls = defineJourney({
         });
         await step('search', async () => {
             await submitSearch(page.getByRole('searchbox', { name: 'What are you looking for today?' }), 'towels');
-            await expect(page).toHaveURL(/\/search\.jsp\?search=towels/);
+            await expect(page).toHaveURL(/\/search\.jsp\?(.*&)?search=towels/);
         });
         await step('open a product', async () => {
-            await openLink(page.locator('a[href*="/product/prd-"]').first());
-            await expect(page.getByRole('button', { name: 'Add to Cart' })).toBeVisible();
+            await page.locator('a[href*="/product/prd-"]').first().click();
+            await expect(details(page).getByRole('button', { name: 'Add to Cart' })).toBeVisible();
         });
         await step(
             'choose a size',
             async () => {
-                await page
-                    .getByRole('button', { name: /^Select size/ })
+                await details(page)
+                    .getByRole('button', { name: /^Select size (?!.*out of stock)/ })
                     .first()
                     .click();
             },
             { optional: true },
         );
         await step('add to cart', async () => {
-            await page.getByRole('button', { name: 'Add to Cart' }).click();
+            // The page's recommendations carry an "Add to Cart" of their own.
+            await details(page).getByRole('button', { name: 'Add to Cart' }).click();
             await expect(page.getByRole('heading', { name: 'Added to Cart for Shipping' })).toBeVisible();
         });
         await step('open the cart', async () => {
@@ -43,3 +44,8 @@ export const kohls = defineJourney({
         });
     },
 });
+
+/** The product page's own details: its title, colours, sizes and cart button. */
+function details(page: Page) {
+    return page.getByRole('region', { name: 'Product details' });
+}

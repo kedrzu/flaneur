@@ -5,6 +5,7 @@ import { Command } from '@nzyme/cli-core/Command.js';
 import { assertNever } from '@nzyme/utils/assertNever.js';
 
 import { connectOwnChrome } from './connectOwnChrome.js';
+import { createHumanInput } from './createHumanInput.js';
 import { createSitePace } from './createSitePace.js';
 import { findChrome } from './findChrome.js';
 import { getCliNativeHostTargets } from './getCliNativeHostTargets.js';
@@ -57,6 +58,10 @@ export class ServeCommand extends Command {
 
     pace = Option.Boolean('--pace', true, { description: 'Hold sites to a human pace; `--no-pace` turns it off' });
 
+    humanInput = Option.Boolean('--human-input', true, {
+        description: 'Move, click, type and scroll like a person; `--no-human-input` sends input as the client does',
+    });
+
     vpn = Option.String('--vpn', {
         description:
             'Browse through a VPN server region, e.g. "US Texas"; needs Docker and the login in FLANEUR_VPN_USER and ' +
@@ -78,6 +83,7 @@ export class ServeCommand extends Command {
 
         const dataDir = getDataDir();
         const pace = this.pace ? createSitePace() : undefined;
+        const input = this.humanInput ? createHumanInput() : undefined;
         if (chrome.type === 'own') {
             this.checkOwnChromeOptions();
             const { browserDataDirs, registryKeys } = await getCliNativeHostTargets({ dataDir });
@@ -86,6 +92,7 @@ export class ServeCommand extends Command {
                 browserDataDirs,
                 registryKeys,
                 pace,
+                input,
                 logger: this.logger,
             });
             try {
@@ -115,6 +122,7 @@ export class ServeCommand extends Command {
                 proxy: tunnel?.proxy,
                 port,
                 pace,
+                input,
                 logger: this.logger,
             });
         } catch (error) {

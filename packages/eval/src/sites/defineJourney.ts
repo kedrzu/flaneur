@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises';
+
 import { errors, test } from 'playwright/test';
 import type { Page, TestInfo } from 'playwright/test';
 
@@ -5,6 +7,7 @@ import { findChallenge, parsePageFacts, READ_PAGE_FACTS } from '../classifyChall
 import type { ChallengeVendor, PageFacts } from '../classifyChallenge.js';
 import { classifyFailure } from './classifyFailure.js';
 import type { FailureClassification } from './classifyFailure.js';
+import type { JourneyTimeline } from './createJourneyTimeline.js';
 
 /** A human-like, non-destructive walk through a protected site: search, a product, a guest cart. */
 export interface Journey {
@@ -20,6 +23,16 @@ export interface Journey {
 /** Runs one named step of a journey; a failure is classified and thrown as a `JourneyFailure`. */
 export interface JourneyStep {
     (name: string, action: () => Promise<void>, options?: JourneyStepOptions): Promise<void>;
+    /**
+     * Moves the journey to a tab it opened, as a link with `target=_blank` does: the challenge checks of the steps
+     * after, the timeline and a failure's evidence read that tab from then on.
+     */
+    follow(page: Page): void;
+}
+
+/** The tab a journey acts in: the test's page until the journey follows another with `JourneyStep.follow`. */
+export interface JourneyTab {
+    page: Page;
 }
 
 /** How a step may fail. */
@@ -36,16 +49,23 @@ export type JourneyOutcome = FailureClassification & { step: string };
 
 /** Options of `createJourneyStep`. */
 export interface CreateJourneyStepParams {
-    page: Page;
+    /** Shared with the fixtures that read the journey's page; `follow` replaces its page. */
+    tab: JourneyTab;
     testInfo: TestInfo;
     /** The page's action timeout outside optional steps; `0` is none. */
     actionTimeout: number;
+    /** Gets an entry before the first step and after every step, failed ones too. */
+    timeline: JourneyTimeline;
 }
 
 /** The annotation type a failed test's `JourneyOutcome` is written under, as JSON. */
 export const OUTCOME_ANNOTATION = 'outcome';
 
 /** How long an optional step's action looks for its target. */
+/** How long a challenge on the page gets to solve itself before the step counts as challenged. */
+const CHALLENGE_RESOLVE_MS = 20_000;
+const CHALLENGE_POLL_MS = 1000;
+
 export const OPTIONAL_STEP_TIMEOUT_MS = 3000;
 
 /** The step name of the challenge check after a journey's last step. */
@@ -85,14 +105,34 @@ export async function runJourney(journey: Journey, page: Page, step: JourneyStep
 /**
  * Creates the `step` a journey runs its actions in, for one test. Before its action a step fails `challenged` when a
  * vendor's challenge is already on the page; when the action throws, the failure is classified from the error and the
- * page. The first failing step writes the test's `outcome` annotation.
+ * page. The first failing step writes the test's `outcome` annotation. Every step adds to the timeline.
  * @__NO_SIDE_EFFECTS__
  */
-export function createJourneyStep({ page, testInfo, actionTimeout }: CreateJourneyStepParams): JourneyStep {
-    return (name, action, options = {}) => test.step(name, () => runStep(name, action, options));
+export function createJourneyStep({ tab, testInfo, actionTimeout, timeline }: CreateJourneyStepParams): JourneyStep {
+    return Object.assign(
+        (name: string, action: () => Promise<void>, options: JourneyStepOptions = {}) =>
+            test.step(name, async () => {
+                if (timeline.entries.length === 0) {
+                    await timeline.record('start');
+                }
+                try {
+                    await runStep(name, action, options);
+                } finally {
+                    await timeline.record(name);
+                }
+            }),
+        { follow },
+    );
+
+    function follow(page: Page) {
+        page.setDefaultTimeout(actionTimeout);
+        tab.page = page;
+    }
 
     async function runStep(name: string, action: () => Promise<void>, options: JourneyStepOptions) {
-        failOnChallenge(name, await readPageFacts(page));
+        await failOnLastingChallenge(name);
+        // The action may follow a new tab; its timeout is restored on the tab it started on.
+        const { page } = tab;
 
         if (options.optional) {
             page.setDefaultTimeout(OPTIONAL_STEP_TIMEOUT_MS);
@@ -103,7 +143,7 @@ export function createJourneyStep({ page, testInfo, actionTimeout }: CreateJourn
             if (error instanceof JourneyFailure) {
                 throw error;
             }
-            const facts = await readPageFacts(page);
+            const facts = await readPageFacts(tab.page);
             if (options.optional && error instanceof errors.TimeoutError) {
                 failOnChallenge(name, facts);
                 return;
@@ -114,6 +154,20 @@ export function createJourneyStep({ page, testInfo, actionTimeout }: CreateJourn
                 page.setDefaultTimeout(actionTimeout);
             }
         }
+    }
+
+    /**
+     * Fails the step on a challenge that does not go away by itself: Kasada's `ips.js`, Cloudflare's and AWS WAF's
+     * JavaScript challenges solve themselves and reload the page within seconds, as the panel probe allows for.
+     */
+    async function failOnLastingChallenge(name: string) {
+        const deadline = Date.now() + CHALLENGE_RESOLVE_MS;
+        let facts = await readPageFacts(tab.page);
+        while (facts != null && findChallenge(facts) != null && Date.now() < deadline) {
+            await sleep(CHALLENGE_POLL_MS);
+            facts = await readPageFacts(tab.page);
+        }
+        failOnChallenge(name, facts);
     }
 
     function failOnChallenge(name: string, facts: PageFacts | null) {

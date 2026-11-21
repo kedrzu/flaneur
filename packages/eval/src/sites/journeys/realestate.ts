@@ -15,7 +15,7 @@ export const realestate = defineJourney({
             await page.goto(URL);
         });
         await step('search a suburb', async () => {
-            await typeText(page.getByRole('combobox').first(), 'Richmond, VIC 3121');
+            await typeText(page.getByRole('combobox', { name: 'Search for properties' }), 'Richmond, VIC 3121');
             await page
                 .getByRole('option', { name: /Richmond, VIC 3121/ })
                 .first()

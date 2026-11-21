@@ -163,16 +163,35 @@ test('a client creates a named world of its own, as it asked for it', () => {
     }
 });
 
-test('an init script lands in the isolated world unless it names one', () => {
+test("an init script lands in the isolated world unless it names one, after that world's prelude", () => {
     for (const worldName of [undefined, '']) {
-        expect(check('Page.addScriptToEvaluateOnNewDocument', { source: 'x', worldName }, 's-a')).toEqual({
-            type: 'forward',
-            method: 'Page.addScriptToEvaluateOnNewDocument',
-            params: { source: 'x', worldName: ISOLATED_WORLD_NAME },
-            sessionId: 's-a',
-        });
+        const expected: StealthDecision = {
+            type: 'initScript',
+            script: {
+                sessionId: 's-a',
+                params: { source: 'x', worldName: ISOLATED_WORLD_NAME },
+                worldName: ISOLATED_WORLD_NAME,
+            },
+        };
+        expect(check('Page.addScriptToEvaluateOnNewDocument', { source: 'x', worldName }, 's-a')).toEqual(expected);
     }
     expect(check('Page.addScriptToEvaluateOnNewDocument', { source: 'x', worldName: 'own' }, 's-a')).toMatchObject({
-        params: { source: 'x', worldName: 'own' },
+        script: { params: { source: 'x', worldName: 'own' }, worldName: 'own' },
     });
+});
+
+test("Page.navigate goes out without the client's referrer, as a typed URL does, keeping its other params", () => {
+    const params = {
+        url: 'https://example.com/',
+        referrer: 'https://google.com/',
+        referrerPolicy: 'origin',
+        frameId: 'f',
+    };
+    const expected: StealthDecision = {
+        type: 'forward',
+        method: 'Page.navigate',
+        params: { url: 'https://example.com/', frameId: 'f' },
+        sessionId: 's-a',
+    };
+    expect(check('Page.navigate', params, 's-a')).toEqual(expected);
 });

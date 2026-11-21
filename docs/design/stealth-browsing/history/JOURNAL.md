@@ -185,3 +185,9 @@ How the design was reached. The decisions it led to are in [../DECISIONS.md](../
   worded refusals (D5 partly replaced).
 - After pace, the brand was the only leak the test pages reported. Owner asked what it meant and why wait; chose to
   build it now (D4 partly replaced).
+
+## 2026-11-21
+
+- Measured how clients send input through flaneur: one move to the exact centre and an instant press and release,
+  text inserted with no key events, script scrolls, the first action right after the load. Owner chose to build the
+  human input layer now, before the eval showed a site reacting to it (D4 partly replaced).

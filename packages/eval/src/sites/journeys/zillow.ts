@@ -1,8 +1,7 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
-import { submitSearch } from '../utils/submitSearch.js';
+import { typeText } from '../utils/typeText.js';
 
 const URL = 'https://www.zillow.com/';
 
@@ -23,18 +22,23 @@ export const zillow = defineJourney({
             { optional: true },
         );
         await step('search', async () => {
-            await submitSearch(page.getByRole('combobox', { name: 'Search' }), 'Denver, CO');
-            await expect(page).toHaveURL(/\/homes\//);
+            await typeText(page.getByRole('combobox', { name: 'Search' }), 'Denver, CO');
+            // Enter alone does not search here; the button does.
+            await page.getByRole('button', { name: 'Submit Search' }).click();
         });
+        // After a search Zillow may ask which listings to show before it shows any.
         await step(
-            'skip the listing type question',
+            'choose homes for sale',
             async () => {
-                await page.getByRole('button', { name: 'Skip this question' }).click();
+                await page.getByRole('button', { name: 'For sale' }).click();
             },
             { optional: true },
         );
+        await step('see the results', async () => {
+            await expect(page).toHaveURL(/\/homes\//);
+        });
         await step('open a home', async () => {
-            await openLink(page.locator('a[href*="/homedetails/"]').first());
+            await page.locator('a[href*="/homedetails/"]').first().click();
             await expect(page).toHaveURL(/\/homedetails\/.+_zpid/);
         });
     },

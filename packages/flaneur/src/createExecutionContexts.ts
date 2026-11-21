@@ -2,7 +2,7 @@ import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
 
 import { CdpError } from './CdpTypes.js';
 import type { CdpEvent } from './CdpTypes.js';
-import { ISOLATED_WORLD_NAME } from './createIsolatedWorlds.js';
+import { ISOLATED_WORLD_NAME, openIsolatedWorld } from './createIsolatedWorlds.js';
 import type { ClientWorld } from './createIsolatedWorlds.js';
 import { readFrame, readFrameTree } from './readFrameTree.js';
 
@@ -142,15 +142,12 @@ export function createExecutionContexts(
     }
 
     /**
-     * The world is created in the browser before it is announced. Asked again for a world it already has an id for, in
+     * The world is created in the browser, its prelude run, before it is announced. Asked again for a world it already has an id for, in
      * the frame's current document or from an earlier call, the client gets that id, as Chrome gives the same context
      * for the same world of a document.
      */
     async function createWorld(sessionId: string, world: ClientWorld) {
-        const reply = await sendCommand('Page.createIsolatedWorld', { ...world }, sessionId);
-        if (!isPlainObject(reply) || typeof reply['executionContextId'] !== 'number') {
-            throw new TypeError('Page.createIsolatedWorld gave no context id');
-        }
+        await openIsolatedWorld({ sendCommand, sessionId, world });
         const { frameId, worldName } = world;
         const session = getSession(sessionId);
         session.worlds.set(worldName, world.grantUniveralAccess);
