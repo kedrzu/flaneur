@@ -357,6 +357,10 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
                     touchSession(decision.call.sessionId);
                     sendReply(id, await worlds.send(decision.call));
                     return;
+                case 'initScript':
+                    touchSession(decision.script.sessionId);
+                    sendReply(id, await worlds.addInitScript(decision.script));
+                    return;
                 case 'createWorld':
                     touchSession(decision.sessionId);
                     sendReply(id, await contexts.createWorld(decision.sessionId, decision.world));
@@ -626,6 +630,7 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
         // What the contexts hold for a detached session goes; a nested session's detach comes on its parent session.
         if (event.method === 'Target.detachedFromTarget' && typeof eventParams['sessionId'] === 'string') {
             contexts.forget(eventParams['sessionId']);
+            worlds.forget(eventParams['sessionId']);
         }
         if (event.sessionId != null) {
             if (isOwnSession(event.sessionId)) {

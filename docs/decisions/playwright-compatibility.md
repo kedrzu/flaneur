@@ -74,5 +74,10 @@ browser: Runtime stays off, no client code runs in a page's own world, no bindin
   one client drives a tab at a time.
 - A popup reaches Playwright already running, not held for it as Chrome's own auto-attach would hold it; the lifecycle
   ordering above makes up for it. Holding popups for clients would need the brand's hold to wait for them.
+- Playwright's own DOM events (`__playwright_*`, `__pw*`) never reach the page: each isolated world's
+  `dispatchEvent` drops them ([D8](../design/stealth-browsing/DECISIONS.md#d8)). Its global-listeners check never
+  hears its event either, so it re-adds its hit-target listeners whenever the document element is replaced, which is
+  harmless; a trace's snapshots lose their marked target. `page.goto(url, { referer })` navigates without the
+  referrer, as a typed URL does.
 - A Playwright upgrade can move what the emulation answers; `playwright.test.ts` and the `--chrome own` extension test
   catch it.

@@ -282,6 +282,25 @@ never on. The proxy's stealth rules run after the session and target checks and 
 > target until its brand is set. After the brand, the public test pages report no leak; indeed.com and kohls.com
 > still block.
 
+> **Checked 2026-11-21:** DOM events dispatched from an isolated world travel the shared DOM to the page's own
+> listeners. Playwright 1.65's injected script dispatches `__playwright_reset_targets__` (on `document`) and
+> `__playwright_mark_target__` (on the target) for every locator action and `page.$`, and
+> `__playwright_global_listeners_check__` (on `window`) when the document element is replaced
+> (`InjectedScript.markTargetElements`, `_setupGlobalListenersRemovalDetection`); a main-world listener sees them. On
+> walmart.com (HUMAN), a raw-input visit that passed 3 of 3 times was challenged ("Robot or human?") once two extra
+> pairs of these events were dispatched before a click. The same day, `page.goto(url, { referer })` (`Page.navigate`
+> with `referrer`) sent `Sec-Fetch-Site: none` together with a `Referer` against a local server: a typed-URL
+> navigation that carries a referrer, which no browser sends; a real click sent `same-origin`.
+
+**Events and referrers (2026-11-21).** Every isolated world the proxy opens, or a client creates, runs the proxy's
+prelude before any client code: the proxy evaluates it in the world it opens before the call or reply, and registers
+it as the first init script of each world a client's init scripts use, on that session
+(`WORLD_PRELUDE`, `packages/flaneur/src/createIsolatedWorlds.ts`). It wraps that world's own
+`EventTarget.prototype.dispatchEvent` so an event whose type starts with `__playwright` or `__pw` is not dispatched;
+the page's prototype stays native. Only those internal prefixes: an event a client dispatches on purpose
+(`page.dispatchEvent`) reaches the page. A client's `Page.navigate` goes without its `referrer` and `referrerPolicy`,
+so it is consistently a typed one. Both are stealth rules no policy can lift.
+
 **Consequences.** The agent loses agent-browser's `console`, `errors` and `expose`, and cannot read the page's JS
 globals (isolated worlds share the DOM, not globals). Playwright works through context events the proxy emulates
 (2026-11-21, [playwright-compatibility](../../decisions/playwright-compatibility.md)), within the same limits. Site

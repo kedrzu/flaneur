@@ -1,7 +1,7 @@
 import type { CdpRequest } from './CdpTypes.js';
 import type { ExecutionContexts } from './createExecutionContexts.js';
 import { ISOLATED_WORLD_NAME } from './createIsolatedWorlds.js';
-import type { ClientWorld, IsolatedCall } from './createIsolatedWorlds.js';
+import type { ClientWorld, InitScript, IsolatedCall } from './createIsolatedWorlds.js';
 
 /** What the proxy does with a request that passed its other checks. */
 export type StealthDecision =
@@ -9,6 +9,8 @@ export type StealthDecision =
     | { type: 'forward'; method: string; params: Record<string, unknown>; sessionId?: string }
     /** Run it in an isolated world: the proxy's, or the client's own it named (`IsolatedWorlds.send`). */
     | { type: 'isolate'; call: IsolatedCall }
+    /** Register a client's init script after the proxy's prelude for its world (`IsolatedWorlds.addInitScript`). */
+    | { type: 'initScript'; script: InitScript }
     /** Create the client's own isolated world on `sessionId` and give it an id (`ExecutionContexts.createWorld`). */
     | { type: 'createWorld'; world: ClientWorld; sessionId: string }
     /** Tell the client of the contexts of `sessionId` (`ExecutionContexts.enable`); the browser's Runtime stays off. */
@@ -64,7 +66,10 @@ const REFUSED_METHODS: Record<string, string> = {
  * Runtime is open only by method (`RUNTIME_METHODS`), Console and Debugger not at all. The user agent is the proxy's
  * (`createBrandOverride`): Emulation's and Network's `setUserAgentOverride` are refused, as a client's override would
  * replace the brand while its session lives. A `javascript:` URL is refused where it would be navigated to, as it runs
- * in the page's own world. A few more methods are refused because they step around the per-message checks or reach the
+ * in the page's own world. A navigation goes without the client's `referrer`: Chrome sends a `Page.navigate` as a
+typed URL (`Sec-Fetch-Site: none`), and one carrying a `Referer` too is a request no person's browser makes. Every
+isolated world runs the proxy's prelude before any client code (`WORLD_PRELUDE`), so Playwright's internal DOM events
+never reach the page. A few more methods are refused because they step around the per-message checks or reach the
  * proxy's own state (`REFUSED_METHODS`).
  * @__NO_SIDE_EFFECTS__
  */
@@ -98,18 +103,28 @@ export function checkStealthRequest(request: CdpRequest, contexts: Pick<Executio
         case 'Page.addScriptToEvaluateOnLoad':
             // Deprecated and world-less: the page's own world would run it.
             return reject(`${method} is not allowed: use Page.addScriptToEvaluateOnNewDocument`);
-        case 'Page.addScriptToEvaluateOnNewDocument':
-            return forward(request, {
-                ...params,
-                worldName:
-                    typeof params['worldName'] === 'string' && params['worldName'] !== ''
-                        ? params['worldName']
-                        : ISOLATED_WORLD_NAME,
-            });
+        case 'Page.addScriptToEvaluateOnNewDocument': {
+            if (sessionId == null) {
+                return reject(`${method} must be sent on a session of a page`);
+            }
+            const worldName =
+                typeof params['worldName'] === 'string' && params['worldName'] !== ''
+                    ? params['worldName']
+                    : ISOLATED_WORLD_NAME;
+            return { type: 'initScript', script: { sessionId, params: { ...params, worldName }, worldName } };
+        }
         case 'Emulation.setUserAgentOverride':
         case 'Network.setUserAgentOverride':
             return reject(`${method} is not allowed: the browser's identity is set by the proxy`);
-        case 'Page.navigate':
+        case 'Page.navigate': {
+            if (isScriptUrl(params['url'])) {
+                return reject(`${method}: a javascript: URL would run in the page's own world`);
+            }
+            const navigation = { ...params };
+            delete navigation['referrer'];
+            delete navigation['referrerPolicy'];
+            return forward(request, navigation);
+        }
         case 'Target.createTarget':
             return isScriptUrl(params['url'])
                 ? reject(`${method}: a javascript: URL would run in the page's own world`)

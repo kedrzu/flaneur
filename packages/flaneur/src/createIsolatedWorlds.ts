@@ -37,6 +37,21 @@ export interface IsolatedCall {
     world?: ClientWorld;
 }
 
+/** A client's `Page.addScriptToEvaluateOnNewDocument`, its world already named (`ISOLATED_WORLD_NAME` by default). */
+export interface InitScript {
+    sessionId: string;
+    /** The call's parameters. */
+    params: Record<string, unknown>;
+    worldName: string;
+}
+
+/** Where `openIsolatedWorld` opens a world, and how it reaches the browser. */
+export interface OpenIsolatedWorldParams {
+    sendCommand: (method: string, params?: object, sessionId?: string) => Promise<unknown>;
+    sessionId: string;
+    world: ClientWorld;
+}
+
 /** The proxy's isolated worlds as one client uses them. */
 export interface IsolatedWorlds {
     /**
@@ -45,6 +60,14 @@ export interface IsolatedWorlds {
      * and retried once.
      */
     send(call: IsolatedCall): Promise<unknown>;
+    /**
+     * Registers a client's init script, after the proxy's own prelude (`WORLD_PRELUDE`) for its world on its session,
+     * registered once and run at once in the current documents too: Chrome runs the init scripts of a new document in
+     * the order they were added, so the prelude runs before every script of a client.
+     */
+    addInitScript(script: InitScript): Promise<unknown>;
+    /** Forgets a detached session. */
+    forget(sessionId: string): void;
 }
 
 /** The browser's errors for a context or frame that went away with a navigation. */
@@ -52,6 +75,43 @@ const GONE_ERRORS = ['Cannot find context with specified id', 'No frame for give
 
 /** The CDP error code of a method the target does not have: a worker has no Page domain. */
 const METHOD_NOT_FOUND = -32_601;
+
+/**
+ * Run in every isolated world before any code of a client: Playwright's injected script dispatches DOM events of its
+ * own (`__playwright_mark_target__` on an action's target, `__playwright_reset_targets__` on the document,
+ * `__playwright_global_listeners_check__` on the window), and an event dispatched from an isolated world travels the
+ * shared DOM to the page's own listeners, which anti-bot scripts use to tell Playwright apart. The world's own
+ * `EventTarget.prototype.dispatchEvent` is wrapped so an event whose type starts with one of Playwright's internal
+ * prefixes (`__playwright`, `__pw`) is not dispatched and reports `true`, as a non-cancelled event does; every other
+ * event, `page.dispatchEvent` included, is a client's deliberate request and goes out unchanged. The wrapper lives in
+ * the world's own prototypes, which the page never sees. Running it again changes nothing.
+ */
+export const WORLD_PRELUDE = `(() => {
+    const proto = EventTarget.prototype;
+    const dispatch = proto.dispatchEvent;
+    const marker = Symbol.for('flaneur.worldPrelude');
+    if (dispatch[marker] === true) {
+        return;
+    }
+    const readType = Object.getOwnPropertyDescriptor(Event.prototype, 'type').get;
+    const startsWith = String.prototype.startsWith;
+    const wrapped = {
+        dispatchEvent(event) {
+            let type;
+            try {
+                type = Reflect.apply(readType, event, []);
+            } catch {
+                return Reflect.apply(dispatch, this, arguments);
+            }
+            if (Reflect.apply(startsWith, type, ['__playwright']) || Reflect.apply(startsWith, type, ['__pw'])) {
+                return true;
+            }
+            return Reflect.apply(dispatch, this, arguments);
+        },
+    }.dispatchEvent;
+    Object.defineProperty(wrapped, marker, { value: true });
+    Object.defineProperty(proto, 'dispatchEvent', { ...Object.getOwnPropertyDescriptor(proto, 'dispatchEvent'), value: wrapped });
+})()`;
 
 /** Run on a node resolved in a frame's world: whether the node belongs to that frame's document. */
 const IS_OWN_DOCUMENT = 'function () { return (this.ownerDocument ?? this) === document; }';
@@ -77,7 +137,38 @@ interface Resolution {
 export function createIsolatedWorlds(
     sendCommand: (method: string, params?: object, sessionId?: string) => Promise<unknown>,
 ): IsolatedWorlds {
-    return { send };
+    /** The prelude's registration on a session for a world, by session and world name (a line apart). */
+    const preludes = new Map<string, Promise<unknown>>();
+
+    return { send, addInitScript, forget };
+
+    async function addInitScript({ sessionId, params, worldName }: InitScript) {
+        const key = `${sessionId}\n${worldName}`;
+        let prelude = preludes.get(key);
+        if (prelude == null) {
+            prelude = sendCommand(
+                'Page.addScriptToEvaluateOnNewDocument',
+                { source: WORLD_PRELUDE, worldName, runImmediately: true },
+                sessionId,
+            );
+            preludes.set(key, prelude);
+        }
+        try {
+            await prelude;
+        } catch (error) {
+            preludes.delete(key);
+            throw error;
+        }
+        return sendCommand('Page.addScriptToEvaluateOnNewDocument', { ...params, worldName }, sessionId);
+    }
+
+    function forget(sessionId: string) {
+        for (const key of preludes.keys()) {
+            if (key.startsWith(`${sessionId}\n`)) {
+                preludes.delete(key);
+            }
+        }
+    }
 
     async function send(call: IsolatedCall) {
         try {
@@ -162,11 +253,7 @@ export function createIsolatedWorlds(
 
     async function sendInWorld(call: IsolatedCall, world: ClientWorld) {
         const { method, params, sessionId, contextParam } = call;
-        const created = await sendCommand('Page.createIsolatedWorld', { ...world }, sessionId);
-        const contextId = isPlainObject(created) ? created['executionContextId'] : undefined;
-        if (typeof contextId !== 'number') {
-            throw new TypeError('Page.createIsolatedWorld gave no context id');
-        }
+        const contextId = await openIsolatedWorld({ sendCommand, sessionId, world });
         return sendCommand(method, { ...params, [contextParam]: contextId }, sessionId);
     }
 
@@ -189,4 +276,22 @@ export function createIsolatedWorlds(
         }
         return readFrameTree(reply).map(frame => frame.id);
     }
+}
+
+/**
+ * Creates an isolated world in the browser, or finds it for the frame's current document, and runs the prelude
+ * (`WORLD_PRELUDE`) in it before anything else may: a world created for a document the prelude's init script was not
+ * registered for yet has not run it. Returns the browser's context id.
+ */
+export async function openIsolatedWorld({ sendCommand, sessionId, world }: OpenIsolatedWorldParams): Promise<number> {
+    const created = await sendCommand('Page.createIsolatedWorld', { ...world }, sessionId);
+    const contextId = isPlainObject(created) ? created['executionContextId'] : undefined;
+    if (typeof contextId !== 'number') {
+        throw new TypeError('Page.createIsolatedWorld gave no context id');
+    }
+    const prelude = await sendCommand('Runtime.evaluate', { expression: WORLD_PRELUDE, contextId }, sessionId);
+    if (isPlainObject(prelude) && prelude['exceptionDetails'] != null) {
+        throw new Error('The isolated world prelude failed');
+    }
+    return contextId;
 }

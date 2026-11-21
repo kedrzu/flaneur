@@ -7,7 +7,7 @@ import { CdpError } from './CdpTypes.js';
 import type { CdpEvent, CdpPolicy, CdpRequest } from './CdpTypes.js';
 import { connectClient } from './connectClient.js';
 import type { HumanInputRun } from './createHumanInput.js';
-import { ISOLATED_WORLD_NAME } from './createIsolatedWorlds.js';
+import { ISOLATED_WORLD_NAME, WORLD_PRELUDE } from './createIsolatedWorlds.js';
 import { createSessionRegistry } from './createSessionRegistry.js';
 import type { SessionRegistry } from './createSessionRegistry.js';
 import { ATTACH_SITE_PACE, createSitePace } from './createSitePace.js';
@@ -402,12 +402,14 @@ test('with Runtime enabled, the browser never gets it, and every call naming a c
             params: { frameId: 'f-main', worldName: ISOLATED_WORLD_NAME, grantUniveralAccess: false },
             sessionId: 's-a',
         },
+        { method: 'Runtime.evaluate', params: { expression: WORLD_PRELUDE, contextId: 1000 }, sessionId: 's-a' },
         { method: 'Runtime.evaluate', params: { expression: '1', contextId: 1000 }, sessionId: 's-a' },
         {
             method: 'Page.createIsolatedWorld',
             params: { frameId: 'f-main', worldName: 'utility-pw', grantUniveralAccess: true },
             sessionId: 's-a',
         },
+        { method: 'Runtime.evaluate', params: { expression: WORLD_PRELUDE, contextId: 1001 }, sessionId: 's-a' },
         { method: 'DOM.resolveNode', params: { backendNodeId: 5, executionContextId: 1001 }, sessionId: 's-a' },
     ]);
     browser.sent.length = 0;
@@ -423,6 +425,31 @@ test('with Runtime enabled, the browser never gets it, and every call naming a c
         'announced for the current document',
     );
     expect(browser.sent).toEqual([{ method: 'Page.getFrameTree', params: {}, sessionId: 's-worker' }]);
+});
+
+test("a client's init scripts of a world come after the proxy's prelude for that world, registered once per session", async () => {
+    const { browser, client, registry } = prepare({ answer: answerPage });
+    registry.claimSession({ type: 'client', clientId: 'c-a' }, 's-a2', 't-a');
+
+    await client.call('Page.addScriptToEvaluateOnNewDocument', { source: 'one' }, 's-a');
+    await client.call('Page.addScriptToEvaluateOnNewDocument', { source: 'two' }, 's-a');
+    await client.call('Page.addScriptToEvaluateOnNewDocument', { source: '', worldName: 'utility-pw' }, 's-a');
+    await client.call('Page.addScriptToEvaluateOnNewDocument', { source: 'three' }, 's-a2');
+
+    const sent = browser.sent.map(command => {
+        const params = isPlainObject(command.params) ? command.params : {};
+        return [command.sessionId, params['worldName'], params['source'] === WORLD_PRELUDE ? 'prelude' : params['source']];
+    });
+    expect(sent).toEqual([
+        ['s-a', ISOLATED_WORLD_NAME, 'prelude'],
+        ['s-a', ISOLATED_WORLD_NAME, 'one'],
+        ['s-a', ISOLATED_WORLD_NAME, 'two'],
+        ['s-a', 'utility-pw', 'prelude'],
+        ['s-a', 'utility-pw', ''],
+        ['s-a2', ISOLATED_WORLD_NAME, 'prelude'],
+        ['s-a2', ISOLATED_WORLD_NAME, 'three'],
+    ]);
+    expect(browser.sent[0]?.params).toMatchObject({ runImmediately: true });
 });
 
 test("a new document's contexts reach the client right after its frameNavigated, before any later event", async () => {
