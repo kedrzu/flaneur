@@ -20,8 +20,8 @@ import {
 } from './summarizeSites.js';
 import type { AttemptOutcome, AttemptRecord, AttemptStatus } from './summarizeSites.js';
 
-/** The project whose challenges put a site on cooldown; the control's are its own doing. */
-const COOLDOWN_PROJECT = 'flaneur';
+/** The projects whose challenges put a site on cooldown: the two that drive flaneur; the control's are its own doing. */
+const COOLDOWN_PROJECTS: readonly string[] = ['flaneur', 'agent-browser'];
 
 const ABCK_STATES: readonly AbckState[] = ['valid', 'invalid', 'unknown'];
 
@@ -86,7 +86,11 @@ export default class ConsistencyReporter implements Reporter {
         const before = readCooldowns(COOLDOWN_FILE);
         let cooldowns = before;
         for (const { project, site, status, outcome } of this.records) {
-            if (project !== COOLDOWN_PROJECT || site == null || (status !== 'challenged' && status !== 'refused')) {
+            if (
+                !COOLDOWN_PROJECTS.includes(project) ||
+                site == null ||
+                (status !== 'challenged' && status !== 'refused')
+            ) {
                 continue;
             }
             const reason = outcome?.vendor == null ? status : `${status} by ${outcome.vendor}`;

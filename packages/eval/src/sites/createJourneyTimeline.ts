@@ -2,7 +2,7 @@ import { findChallengeVendor } from 'flaneur';
 import type { Page } from 'playwright/test';
 
 import { summarizeVendorCookies } from '../vendorCookies.js';
-import type { VendorCookieSummary } from '../vendorCookies.js';
+import type { NamedCookie, VendorCookieSummary } from '../vendorCookies.js';
 import type { JourneyTab } from './defineJourney.js';
 
 /** Where a journey stood after one of its steps: the page and the anti-bot cookies the browser held for it. */
@@ -37,23 +37,30 @@ export interface JourneyTimeline {
     record(step: string): Promise<void>;
 }
 
+/** Where a timeline reads the journey's page from: Playwright's tab or an agent-browser session. */
+export interface TimelineSource {
+    readUrl(): Promise<string>;
+    /** The cookies the browser holds for `url`. */
+    readCookies(url: string): Promise<readonly NamedCookie[]>;
+    findNestedChallenges(): Promise<NestedChallenge[]>;
+}
+
 /** The annotation type a test's timeline entries are written under, as JSON. */
 export const TIMELINE_ANNOTATION = 'timeline';
 
 /**
- * Creates an empty timeline of the journey's tab, whichever page it holds when an entry is recorded, its clock started
- * now.
+ * Creates an empty timeline of the page `source` reads, whichever page it holds when an entry is recorded, its clock
+ * started now.
  * @__NO_SIDE_EFFECTS__
  */
-export function createJourneyTimeline(tab: JourneyTab): JourneyTimeline {
+export function createJourneyTimeline(source: TimelineSource): JourneyTimeline {
     const startedAt = Date.now();
     const entries: TimelineEntry[] = [];
     return { entries, record };
 
     async function record(step: string) {
-        const { page } = tab;
-        const url = page.url();
-        const nestedChallenges = findNestedChallenges(page);
+        const url = await source.readUrl().catch(() => '');
+        const nestedChallenges = await source.findNestedChallenges().catch(() => []);
         entries.push({
             step,
             atMs: Date.now() - startedAt,
@@ -65,12 +72,24 @@ export function createJourneyTimeline(tab: JourneyTab): JourneyTimeline {
 
     async function readCookies(url: string) {
         try {
-            return summarizeVendorCookies(await tab.page.context().cookies(url));
+            return summarizeVendorCookies(await source.readCookies(url));
         } catch {
             // A closed page or a disconnected browser has no cookies to tell; the entry says so with `null`.
             return null;
         }
     }
+}
+
+/**
+ * The timeline source of a Playwright journey's tab, whichever page it holds.
+ * @__NO_SIDE_EFFECTS__
+ */
+export function createTabTimelineSource(tab: JourneyTab): TimelineSource {
+    return {
+        readUrl: () => Promise.resolve(tab.page.url()),
+        readCookies: url => tab.page.context().cookies(url),
+        findNestedChallenges: () => Promise.resolve(findNestedChallenges(tab.page)),
+    };
 }
 
 /** The challenge frames of `page` whose parent is a subframe; read from Playwright's frame tree, no command sent. */

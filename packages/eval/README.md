@@ -50,6 +50,7 @@ bun run eval:sites                                 # every journey 3 times in fl
 bun run eval:sites --repeat-each 1 --grep amazon   # one journey once
 bun run eval:sites --repeat-each 1 --grep @captcha # the CAPTCHA checks once
 bun run eval:sites --project headless              # add the plain headless Chromium as the control
+bun run eval:sites:agent-browser                   # the agent-browser journeys twice each, in flaneur
 bun run eval:sites:history                         # pass rates of the last 5 runs, and the sites cooling
 bun run eval:sites:selftest                        # the suite's own check, on local pages, offline
 ```
@@ -87,11 +88,22 @@ bun run eval:sites:selftest                        # the suite's own check, on l
 - **Artifacts:** each run writes to its own `~/.flaneur-eval/sites/<time>/`, so older runs' screenshots stay; a failed
   attempt gets its screenshot, its HTML (up to 300 KB) and its accessibility tree.
 - **Cooldown:** a site that challenged or refused flaneur cools for an hour in `~/.flaneur-eval/sites/cooldown.json`,
-  and later runs skip its journey in both projects, the skip naming the minutes left.
+  and later runs skip its journeys in every project, the skip naming the minutes left.
   `FLANEUR_SITES_IGNORE_COOLDOWN=1` runs it anyway; deleting the file ends every cooldown.
 - **Repeats:** `--repeat-each` runs the journeys in turns (all once, then all again), with one flaneur and one pace
   for the whole run. After a challenge flaneur pauses the site for 5 minutes and stops it for an hour after a second,
   so later attempts on it are `refused`.
+- **agent-browser** (project `agent-browser`, `src/sites/agentBrowser`, tag `@agent-browser`): most agents drive
+  flaneur with [agent-browser](https://github.com/vercel-labs/agent-browser), not Playwright, so a subset of the
+  journeys runs as agent-browser commands over the same flaneur, pace and human input (one agent-browser session and
+  tab per test). They are written the way an agent uses it: `snapshot -i` to read the page, then `find role … click --name`, `click @ref`, `fill` and `press Enter`, `scroll down`, `get url` to confirm. A command whose target is
+  missing is tried again within the action timeout, as an agent snapshots again. Each is titled as its Playwright twin,
+  so the table lines them up by project. The sites: those where the headless control was challenged and flaneur with
+  Playwright passes, so a pass is evidence (decathlon.pl, kohls.com, zara.com, sephora.pl, zillow.com, skyscanner.pl,
+  realestate.com.au, otto.de, walmart.com, google.com, the reCAPTCHA v2 checkbox), plus vinted.pl, leroymerlin.pl
+  (DataDome) and booking.com (AWS WAF). Failures are classified, timed and kept as in the Playwright projects, the
+  snapshot standing for the accessibility tree; the timeline has no `nestedChallenges`, since agent-browser shows no
+  frame tree. A challenge in this project cools the site as one in `flaneur` does.
 - The control spends the connection's reputation (DataDome flags the IP after a headless visit), so it runs only when
   named. Allegro stays with the `allegro` probe of `bun run eval`.
 - The suite runs on Node, under Playwright's own runner; its `*.spec.ts` files are not `bun test` files.

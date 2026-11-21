@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, rename, rm } from 'node:fs/promises';
+import { chmod, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const VERSION = '0.43.0';
@@ -12,7 +13,8 @@ const PINNED: Record<string, { target: string; sha256: string } | undefined> = {
 
 /**
  * Downloads the pinned agent-browser into `stateFolder` unless it is there, verifies its checksum, and resolves with the
- * executable's path. A download that does not match the pin is removed and never made executable.
+ * executable's path. A download that does not match the pin is removed and never made executable. Runs on Node (the
+ * sites eval) and Bun (`bun run eval`).
  */
 export async function installAgentBrowser(stateFolder: string): Promise<string> {
     const pin = process.platform === 'darwin' ? PINNED[process.arch] : undefined;
@@ -33,7 +35,7 @@ export async function installAgentBrowser(stateFolder: string): Promise<string> 
         throw new Error(`agent-browser download failed: HTTP ${response.status}`);
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
-    const actual = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+    const actual = createHash('sha256').update(bytes).digest('hex');
     if (actual !== pin.sha256) {
         throw new Error(`agent-browser download does not match the pinned checksum (got ${actual})`);
     }
@@ -41,7 +43,7 @@ export async function installAgentBrowser(stateFolder: string): Promise<string> 
     // Written aside and renamed, so a half-written file never passes for an installed one.
     const partial = `${executable}.partial`;
     try {
-        await Bun.write(partial, bytes);
+        await writeFile(partial, bytes);
         await chmod(partial, 0o755);
         await rename(partial, executable);
     } finally {

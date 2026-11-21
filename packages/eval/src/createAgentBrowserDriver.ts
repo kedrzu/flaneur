@@ -1,8 +1,8 @@
 import { assert } from '@nzyme/utils/assert.js';
 import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
-import { withTimeout } from '@nzyme/utils/withTimeout.js';
 
 import type { BrowserStack } from './bootBrowserStack.js';
+import { createAgentBrowserCli } from './createAgentBrowserCli.js';
 import type { EvalDriver } from './StealthEvalTypes.js';
 
 /** What the agent's driver runs and where it connects. */
@@ -16,9 +16,6 @@ export interface CreateAgentBrowserDriverParams {
 const DATE_PART_ORDER = `new Intl.DateTimeFormat(navigator.language).formatToParts(new Date(2000, 10, 22))
     .map(part => part.type).filter(type => type === 'day' || type === 'month' || type === 'year')`;
 
-/** How long one agent-browser command may take; a page that never settles must not hang the eval. */
-const COMMAND_TIMEOUT_MS = 60_000;
-
 /**
  * Drives flaneur the way an agent does: the agent-browser CLI over flaneur's CDP endpoint, one session for the whole
  * run. Selectors are CSS, which agent-browser takes wherever it takes an `@e` ref.
@@ -26,27 +23,22 @@ const COMMAND_TIMEOUT_MS = 60_000;
  */
 export function createAgentBrowserDriver(params: CreateAgentBrowserDriverParams): EvalDriver {
     const { executable, stack } = params;
-    const env = {
-        ...process.env,
-        AGENT_BROWSER_CDP: stack.endpoint,
-        AGENT_BROWSER_SESSION: stack.session,
-        AGENT_BROWSER_NO_VERSION_CHECK: '1',
-    };
+    const cli = createAgentBrowserCli({ executable, endpoint: stack.endpoint, session: stack.session });
 
     return {
-        open: url => run('open', url).then(() => undefined),
+        open: url => run('open', url),
         click: selector => runOn(selector, 'click', selector),
         type: (selector, text) => runOn(selector, 'fill', selector, text),
-        press: key => run('press', key).then(() => undefined),
+        press: key => run('press', key),
         select: (selector, value) => runOn(selector, 'select', selector, value),
         pickDate,
-        scrollBy: px => run('scroll', 'down', String(px)).then(() => undefined),
+        scrollBy: px => run('scroll', 'down', String(px)),
         scrollTo: selector => runOn(selector, 'scrollintoview', selector),
         evaluate,
         cookieNames,
         browserVersion: () => stack.browserVersion(),
         // Ends agent-browser's own background process for the session; flaneur refuses closing the browser itself.
-        close: () => run('close').then(() => undefined),
+        close: () => run('close'),
     };
 
     /**
@@ -70,13 +62,10 @@ export function createAgentBrowserDriver(params: CreateAgentBrowserDriverParams)
     }
 
     async function cookieNames() {
-        const output = await run('--json', 'cookies', 'get');
-        const reply: unknown = JSON.parse(output);
-        // `{ success, data: { cookies: [{ name, domain, … }] }, error }`
-        const data = isPlainObject(reply) && reply['success'] === true ? reply['data'] : undefined;
-        const cookies = isPlainObject(data) ? data['cookies'] : undefined;
+        // `{ cookies: [{ name, domain, … }] }`
+        const { cookies } = await cli.json('cookies', 'get');
         if (!Array.isArray(cookies)) {
-            throw new TypeError(`agent-browser cookies failed: ${output.trim()}`);
+            throw new TypeError('agent-browser cookies gave no list');
         }
         return cookies.flatMap(cookie =>
             isPlainObject(cookie) && typeof cookie['name'] === 'string' ? [cookie['name']] : [],
@@ -84,12 +73,10 @@ export function createAgentBrowserDriver(params: CreateAgentBrowserDriverParams)
     }
 
     async function evaluate(expression: string) {
-        const output = await run('--json', 'eval', expression);
-        const reply: unknown = JSON.parse(output);
-        // `{ success, data: { result, origin, lifecycle }, error }`
-        const data = isPlainObject(reply) && reply['success'] === true ? reply['data'] : undefined;
-        if (!isPlainObject(data) || !('result' in data)) {
-            throw new Error(`agent-browser eval failed: ${output.trim()}`);
+        // `{ result, origin, lifecycle }`
+        const data = await cli.json('eval', expression);
+        if (!('result' in data)) {
+            throw new Error('agent-browser eval gave no result');
         }
         return data['result'];
     }
@@ -103,26 +90,8 @@ export function createAgentBrowserDriver(params: CreateAgentBrowserDriverParams)
         await run(...args);
     }
 
-    /** Runs one agent-browser command; resolves with its stdout, rejects with its stderr when it fails. */
+    /** Runs one agent-browser command; rejects with an `AgentBrowserError` when it fails. */
     async function run(...args: string[]) {
-        const child = Bun.spawn([executable, ...args], { env, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
-        const [stdout, stderr, exitCode] = await withTimeout({
-            operation: Promise.all([
-                new Response(child.stdout).text(),
-                new Response(child.stderr).text(),
-                child.exited,
-            ]),
-            timeoutMs: COMMAND_TIMEOUT_MS,
-            onTimeout: () => {
-                child.kill('SIGKILL');
-                throw new Error(`agent-browser ${args[0]} timed out`);
-            },
-        });
-        if (exitCode !== 0) {
-            throw new Error(
-                `agent-browser ${args.join(' ')} failed (exit ${exitCode}): ${stderr.trim() || stdout.trim()}`,
-            );
-        }
-        return stdout;
+        await cli.json(...args);
     }
 }

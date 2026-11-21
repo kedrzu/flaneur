@@ -6,6 +6,36 @@ day. Results files are in `~/.flaneur-eval/results` on the owner's machine; the 
 
 ## 2026-11-21
 
+### Late night: agent-browser on the protected sites
+
+The sites eval's new `agent-browser` project (`packages/eval/src/sites/agentBrowser`) drives the same flaneur, pace,
+profile and human input as the `flaneur` project, through agent-browser 0.43.0 commands the way an agent uses them
+(`snapshot -i`, `find role … click`, `click @ref`, `fill` + `press Enter`, `scroll`, `get url`). Run
+`2026-11-21T21-34-03.129Z-sites.json`, `--repeat-each 2`, against flaneur with Playwright in
+`2026-11-21T19-38-24.060Z-sites.json`:
+
+|Journey|Vendor|agent-browser|Playwright|
+|-|-|-|-|
+|decathlon.pl|Cloudflare|2/2|2/2|
+|vinted.pl|DataDome|2/2|2/2|
+|leroymerlin.pl|DataDome|2/2|2/2|
+|kohls.com|Akamai|2/2|1/2 (broken)|
+|zara.com|Akamai|0/2 (broken)|2/2|
+|sephora.pl|Akamai|2/2|2/2|
+|walmart.com|HUMAN|2/2|2/2|
+|zillow.com|HUMAN|2/2|2/2|
+|skyscanner.pl|HUMAN|2/2|2/2|
+|realestate.com.au|Kasada|2/2|2/2|
+|otto.de|Kasada|2/2|2/2|
+|booking.com|AWS WAF|2/2|2/2|
+|google.com|reCAPTCHA|2/2|2/2|
+|Google reCAPTCHA v2 checkbox|reCAPTCHA|2/2|2/2|
+
+No challenge in 28 attempts, nor in the 15 development attempts before them. Both zara.com failures are the journey:
+the size was chosen and the "DODANO DO KOSZYKA" dialog showed (snapshot and screenshot), but the dialog hid the header
+link the check then read; the check now accepts either. Verdict: on these sites agent-browser's path is no more
+detectable than Playwright's. `dblclick`, the one trace still open, is used by no journey.
+
 ### Late night: what agent-browser leaks to a page
 
 agent-browser 0.43.0 over flaneur (input layer on, pace at 0), each command family run on a fresh load of a local page

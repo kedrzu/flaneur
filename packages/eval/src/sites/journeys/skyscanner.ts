@@ -53,8 +53,11 @@ export const skyscanner = defineJourney({
     },
 });
 
-/** A return flight from Warsaw to London, out in 3 weeks and back 4 days later. */
-function flightsUrl(today: Date) {
+/**
+ * The results of a return flight from Warsaw to London, out in 3 weeks and back 4 days later.
+ * @__NO_SIDE_EFFECTS__
+ */
+export function flightsUrl(today: Date) {
     const out = daysAfter(today, 21);
     return `${URL}transport/loty/waw/lond/${formatDay(out)}/${formatDay(daysAfter(out, 4))}/?adultsv2=1&cabinclass=economy`;
 }

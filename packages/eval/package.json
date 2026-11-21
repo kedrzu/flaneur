@@ -9,6 +9,7 @@
         "build": "tsgo --build tsconfig.esm.json",
         "eval": "bun src/stealthEval.ts",
         "eval:sites": "playwright test -c src/sites/playwright.config.ts --project flaneur --repeat-each 3",
+        "eval:sites:agent-browser": "playwright test -c src/sites/playwright.config.ts --project agent-browser --repeat-each 2",
         "eval:sites:history": "bun src/sites/sitesHistory.ts",
         "eval:sites:selftest": "playwright test -c src/sites/selftest.config.ts"
     },
