@@ -6,6 +6,33 @@ day. Results files are in `~/.flaneur-eval/results` on the owner's machine; the 
 
 ## 2026-11-21
 
+### Night: leboncoin's hidden CAPTCHA, and the panel twice
+
+**leboncoin.fr's CAPTCHA is in a hidden frame, not on the page.** Three loads of the home page in the CLI's installed
+Chrome, each on a fresh profile, with no client actions, read through the frame events and an isolated world. Every
+first load is a 403 with DataDome's interstitial in a frame of the main frame, and the real page (200) comes 3 s
+later. In two of the three loads the page then opens `iframe#authFrame` (`display: none`, 0×0, a child of the main
+frame) at `auth.leboncoin.fr/api/authorizer/v2/authorize`. It is answered 403, loads `ct.captcha-delivery.com/c.js`
+and gets a child frame `geo.captcha-delivery.com/captcha/`. The page renders normally, and 6 s later a new sign-in frame
+gets its 200. The pace now counts a challenge only when it is the page's own: requested by the main frame's document,
+or the document of a frame the main frame holds. One nested deeper is logged and not counted
+([D5](../DECISIONS.md#d5)). The same probe showed the pace counting out-of-process challenge frames as blocks of
+`geo.captcha-delivery.com`; only page targets count now. Whether a person's browser gets the same hidden CAPTCHA is
+still not known.
+
+**The whole panel twice** (run `2026-11-21T19-38-24Z`, `--repeat-each 2`, eval profile, home connection): 91 of 102
+attempts passed and none was challenged or refused. leboncoin.fr passed 2 of 2. The 11 failures are all `broken`:
+
+- euro.com.pl 0/2: a product the profile's cart already held brings a go-to-cart dialog; fixed, passed after.
+- homedepot.com 0/2 and lowes.com 1/2: open a product.
+- xcite.com 0/2: add to cart.
+- kohls.com 1/2: open the cart.
+- fiverr.com 1/2: open a gig in a new tab.
+- amazon.pl 1/2: the cart confirmation.
+- walmart.com long 1/2: page 2.
+
+None of these was checked on its screenshot yet.
+
 ### Evening: journeys that never ran past a point
 
 Runs on fresh profiles, the journeys following links by clicking.
