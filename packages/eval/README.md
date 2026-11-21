@@ -54,12 +54,20 @@ bun run eval:sites:history                         # pass rates of the last 5 ru
 bun run eval:sites:selftest                        # the suite's own check, on local pages, offline
 ```
 
-- **Journeys:** Cloudflare: decathlon.pl, x-kom.pl, morele.net, ikea.com. Akamai: kohls.com, zalando.pl, zara.com,
-  sephora.pl. HUMAN: walmart.com, zillow.com, gamestop.com, skyscanner.pl. DataDome: vinted.pl, tripadvisor.com,
-  etsy.com, airbnb.pl. Kasada: realestate.com.au, nike.com (behind Akamai too), otto.de, chewy.com. AWS WAF:
-  booking.com, redfin.com, ocado.com. Imperva: xcite.com. Amazon's robot check: amazon.pl. reCAPTCHA: google.com
-  (`/sorry/`) and the [test shop](shop/README.md), whose mean reCAPTCHA v3 score must reach 0.5. otodom.pl was dropped:
-  it set no DataDome or AWS WAF cookie (checked 2026-11-21).
+- **Journeys:** Cloudflare: decathlon.pl, x-kom.pl, morele.net, ikea.com, notino.pl, lego.com, kaufland.pl,
+  thalia.de. Akamai: kohls.com, zalando.pl, zara.com, sephora.pl, euro.com.pl, hm.com, asos.com, lowes.com. HUMAN:
+  walmart.com, zillow.com, gamestop.com, skyscanner.pl, homedepot.com (behind Akamai too), fiverr.com. DataDome:
+  vinted.pl, tripadvisor.com, etsy.com, airbnb.pl, leroymerlin.pl, seatgeek.com. Kasada: realestate.com.au, nike.com
+  (behind Akamai too), otto.de, chewy.com, costco.com. AWS WAF: booking.com, redfin.com, ocado.com. Imperva: xcite.com,
+  hertz.com. Amazon's robot check: amazon.pl. reCAPTCHA: google.com (`/sorry/`) and the [test shop](shop/README.md),
+  whose mean reCAPTCHA v3 score must reach 0.5. Dropped: otodom.pl set no DataDome or AWS WAF cookie; autozone.com
+  shows DataDome's slider to every visitor outside the US (its cookie names the rule); wayfair.com shows HUMAN's
+  "Press & Hold" on the first page load, so no journey could be written past it; leboncoin.fr gets a DataDome CAPTCHA
+  in a hidden sign-in frame on every home page load, which flaneur's pace counts as a block (all 2026-11-21).
+- **Long journeys** (tag `@long`): decathlon.pl, zalando.pl, walmart.com and otto.de once more as a longer walk (a
+  search, a sort, page 2, two products read with the wheel and left with Back, the cart), and google.com six searches
+  in a row, each with a result opened and left, to see after how many Google shows `/sorry/`. `--grep-invert @long`
+  leaves them out.
 - **CAPTCHA checks** (`captcha.spec.ts`, tag `@captcha`): the reCAPTCHA v3 score of the 2captcha and antcpt demos must
   reach 0.7, a lower one fails as `challenged`; Google's reCAPTCHA v2 demo checkbox must tick without an image challenge (never solved, never submitted);
   nowsecure.nl must load past Cloudflare. A score is the `score` column of the table. Turnstile's demo (a key that

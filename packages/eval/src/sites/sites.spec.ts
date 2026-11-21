@@ -10,7 +10,7 @@ for (const journey of JOURNEYS) {
         test(
             journey.name,
             {
-                tag: `@${journey.vendor.toLowerCase().replaceAll(' ', '-')}`,
+                tag: [`@${journey.vendor.toLowerCase().replaceAll(' ', '-')}`, ...(journey.tags ?? [])],
                 annotation: [
                     { type: VENDOR_ANNOTATION, description: journey.vendor },
                     { type: SITE_ANNOTATION, description: site },
