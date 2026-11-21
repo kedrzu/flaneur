@@ -26,7 +26,7 @@ honours the CLI's `node` shebang and runs it on Node when Node is installed.
 
 ```bash
 npx flaneur [--chrome installed|own|testing|testing@<version>|<path>] \
-    [--user-data-dir <dir>] [--port <n>] [--no-pace] \
+    [--user-data-dir <dir>] [--port <n>] [--no-pace] [--no-human-input] \
     [--vpn <region> --vpn-provider <name>] [-- <chrome args>]
 ```
 
@@ -43,6 +43,8 @@ endpoint drives the browser: it listens on `127.0.0.1` only and refuses any conn
   `${XDG_DATA_HOME:-~/.local/share}` on Linux. `--user-data-dir` sets another profile.
 - **Pace:** each site gets at most one page load every 5 s, and is paused, then slowed, after it blocks or challenges
   the browser. `--no-pace` turns that off.
+- **Input:** clicks, typing and scrolling reach pages as a person's ([Human input](#human-input)).
+  `--no-human-input` sends them as the client does.
 - **VPN:** `--vpn "US Texas" --vpn-provider "private internet access"` sends the browser, and only the browser,
   through a VPN server region (see below).
 - **Exit:** non-zero when Chrome exits or the start fails; SIGINT and SIGTERM close the browser cleanly.
@@ -204,6 +206,7 @@ every call. Any other client that takes a CDP WebSocket URL works the same way.
 ```ts
 import {
     connectOwnChrome,
+    createHumanInput,
     createSitePace,
     launchStealthBrowser,
     serveBrowser,
@@ -212,7 +215,7 @@ import {
 } from 'flaneur';
 ```
 
-- `launchStealthBrowser({ executablePath, userDataDir, args?, proxy?, policy?, pace?, logger? })` launches Chrome over
+- `launchStealthBrowser({ executablePath, userDataDir, args?, proxy?, policy?, pace?, input?, logger? })` launches Chrome over
   `--remote-debugging-pipe` and resolves once every new target is branded. `browser.connect(socket, { group, data })`
   adds a client on any socket-like object (`send`, `close`); the caller feeds it the socket's messages. A client with a
   `group` sees only that group's pages, and pages it creates join the group. `browser.send` and `browser.attach` are
@@ -221,6 +224,8 @@ import {
   runs after the proxy's session and target checks and before its stealth rules, which no policy can lift.
 - `createSitePace()` creates the human pace. Hand the same pace to each launch: what it learned of blocks outlives a
   browser restart.
+- `createHumanInput({ clock?, random?, typingIntervalMs?, minTimeOnPageMs?, maxTimeOnPageMs? })` creates the human
+  input; pass it as `input` to a launch or `connectOwnChrome`. Without one, input goes as the client sends it.
 - `serveStealthBrowser(options & { port? })` is what the CLI runs: it launches the browser and serves it at a
   tokenised `127.0.0.1` endpoint, each socket a client with no group. `close()` stops both. `serveBrowser(browser,
   { port?, logger? })` is its serving half, for a browser already started.
@@ -233,10 +238,26 @@ import {
   `<cacheDir>/<version>-<platform>/`, a folder that exists only once a verified archive is fully unpacked; concurrent
   calls share one download. `findChromeForTesting({ cacheDir, version? })` finds it without downloading.
   `findChrome()` finds the installed Google Chrome in its standard place.
-- `connectOwnChrome({ dataDir, policy?, pace?, logger? })` is `--chrome own`: it registers the native messaging host
+- `connectOwnChrome({ dataDir, policy?, pace?, input?, logger? })` is `--chrome own`: it registers the native messaging host
   in `<dataDir>/own-chrome`, starts Chrome when it is not running, and resolves with the browser once the extension
   connects, within 45 s (`timeoutMs`). Serve it with `serveBrowser`; closing it detaches the extension from every tab
   and leaves Chrome and its tabs open.
+
+## Human input
+
+Clients send input like a machine: a click is one move to the element's exact centre and an instant press, a `fill`
+inserts the text with no key events, a scroll into view is a script's, and the first action comes right after the
+load. Behaviour sensors read exactly that, so the proxy performs each client's input as a person would:
+
+- a move follows a curved path at a hand's speed from where the cursor is, and lands a few pixels from the centre;
+- a press waits a short hover, and the release follows it after a human time;
+- an inserted text is typed key by key at a fast typist's pace, Shift held for capitals; a key press is held;
+- a scroll into view is wheeled most of the way, and a long wheel goes in notches;
+- the first input on a freshly loaded page waits until it has been on screen 1.5 to 3.5 s, the cursor idling.
+
+It costs time: about half a second more per click, about 90 ms per typed character. A text of over 200 characters is
+typed faster, so a command stays within a client's 30 s timeout. The CLI turns it on; `--no-human-input` turns it
+off, and the library has it only when a launch is given `input`.
 
 ## In the background
 

@@ -101,6 +101,8 @@ await browser.close(); // only disconnects: the pages stay open for the next scr
 - With `--chrome own`, `context.cookies()`, `storageState()` and `grantPermissions()` fail, and a tab another client
   drives is not yours.
 - The pace holds `goto` too: a wait of a few seconds is the protection, not a hang.
+- Clicks and typing take a person's time (about half a second a click, 90 ms a typed character, a few seconds before
+  the first action on a fresh page): that is the protection too.
 
 ## Behave like a person
 

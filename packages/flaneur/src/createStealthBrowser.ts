@@ -10,6 +10,8 @@ import { connectClient } from './connectClient.js';
 import type { CdpClient } from './connectClient.js';
 import { createBrandOverride } from './createBrandOverride.js';
 import type { BrandOverride } from './createBrandOverride.js';
+import { ATTACH_HUMAN_INPUT } from './createHumanInput.js';
+import type { HumanInput } from './createHumanInput.js';
 import { createProxyAuth } from './createProxyAuth.js';
 import { createSessionRegistry } from './createSessionRegistry.js';
 import { ATTACH_SITE_PACE } from './createSitePace.js';
@@ -101,6 +103,8 @@ export interface CreateStealthBrowserOptions<D> {
     proxy?: StealthBrowserProxy;
     policy?: CdpPolicy<D>;
     pace?: SitePace;
+    /** Performs every client's input as a person would; none: input goes as the client sent it. */
+    input?: HumanInput;
     /** How long configuring the browser, reading its identity included, may take; 15 s by default. */
     startTimeoutMs?: number;
     logger: Logger;
@@ -151,6 +155,7 @@ export async function createStealthBrowser<D = unknown>(
     const brand = options.brand ? createBrandOverride({ send: call, registry, logger }) : NO_BRAND;
     const proxyAuth = createConnectionProxyAuth();
     const pace = options.pace?.[ATTACH_SITE_PACE](registry);
+    const input = options.input?.[ATTACH_HUMAN_INPUT](registry);
     const exited = connection.closed.then(onExit);
     connection.onFrame(handleFrame);
 
@@ -219,6 +224,7 @@ export async function createStealthBrowser<D = unknown>(
                 onEvent,
                 policy: options.policy,
                 pace,
+                input,
                 logger,
             }),
         };
@@ -302,6 +308,7 @@ export async function createStealthBrowser<D = unknown>(
         proxyAuth?.observe(event);
         brand.observe(event);
         pace?.observe(event);
+        input?.observe(event);
         for (const listener of listeners) {
             try {
                 listener(event);
@@ -319,6 +326,7 @@ export async function createStealthBrowser<D = unknown>(
         pending.clear();
         registry.clear();
         pace?.detach();
+        input?.detach();
         for (const connected of clients) {
             closeClient(connected);
         }

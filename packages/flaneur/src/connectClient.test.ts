@@ -6,6 +6,7 @@ import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
 import { CdpError } from './CdpTypes.js';
 import type { CdpEvent, CdpPolicy, CdpRequest } from './CdpTypes.js';
 import { connectClient } from './connectClient.js';
+import type { HumanInputRun } from './createHumanInput.js';
 import { ISOLATED_WORLD_NAME } from './createIsolatedWorlds.js';
 import { createSessionRegistry } from './createSessionRegistry.js';
 import type { SessionRegistry } from './createSessionRegistry.js';
@@ -507,10 +508,45 @@ test("lifecycle events are enabled once the client has the session's frame tree,
     expect(client.messages.map(message => message['id'] ?? message['method'])).toEqual([1, 2, 'Page.lifecycleEvent']);
 });
 
+test("human input sends its own commands first in the session's line, held to the stealth rules, and the client gets the reply of the command it sends last", async () => {
+    let refusal: unknown;
+    const input: Pick<HumanInputRun, 'perform'> = {
+        async perform(command, send) {
+            if (command.method !== 'Input.dispatchMouseEvent' || command.sessionId == null) {
+                return command;
+            }
+            await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }, command.sessionId);
+            await send('Runtime.enable', {}, command.sessionId).catch((error: unknown) => {
+                refusal = error;
+            });
+            return { ...command, params: { ...command.params, x: 11 } };
+        },
+    };
+    const { browser, client } = prepare({
+        input,
+        answer: command =>
+            command.method === 'Input.dispatchMouseEvent' ? Promise.resolve({ x: 'answered' }) : undefined,
+    });
+
+    const pressed = client.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: 10, y: 10 }, 's-a');
+    const next = client.call('Page.getFrameTree', {}, 's-a');
+    const reply = await pressed;
+    await next;
+
+    expect(browser.sent).toEqual([
+        { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 1, y: 1 }, sessionId: 's-a' },
+        { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: 11, y: 10 }, sessionId: 's-a' },
+        { method: 'Page.getFrameTree', params: {}, sessionId: 's-a' },
+    ]);
+    expect(reply['result']).toEqual({ x: 'answered' });
+    expect(refusal).toBeInstanceOf(Error);
+});
+
 /** What `prepare` builds a client with. */
 interface PrepareOptions {
     policy?: CdpPolicy<string>;
     pace?: Pick<SitePaceRun, 'gate'>;
+    input?: Pick<HumanInputRun, 'perform'>;
     /** The registry to fill; a new one by default. */
     registry?: SessionRegistry;
     /** The fake browser's answer to a command; `undefined` leaves it to the default answers. */
@@ -603,6 +639,7 @@ function prepare(options: PrepareOptions) {
         },
         policy: options.policy,
         pace: options.pace,
+        input: options.input,
         logger: createTestLogger('test').logger,
     });
 

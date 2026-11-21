@@ -7,6 +7,7 @@ import { assert } from '@nzyme/utils/assert.js';
 import { buildStealthArgs } from './buildStealthArgs.js';
 import type { CdpPolicy } from './CdpTypes.js';
 import { connectBrowserPipe } from './connectBrowserPipe.js';
+import type { HumanInput } from './createHumanInput.js';
 import type { SitePace } from './createSitePace.js';
 import { createStealthBrowser } from './createStealthBrowser.js';
 import type { StealthBrowser } from './createStealthBrowser.js';
@@ -33,6 +34,11 @@ export interface LaunchStealthBrowserOptions<D = unknown> {
      * waits.
      */
     pace?: SitePace;
+    /**
+     * Performs every client's input as a person would (`createHumanInput`): mouse paths, a dwell before a click, typing
+     * key by key, wheeling into view. None: input goes as the client sent it.
+     */
+    input?: HumanInput;
     /** How long configuring the started browser, reading its identity included, may take; 15 s by default. */
     startTimeoutMs?: number;
     logger?: Logger;
@@ -67,6 +73,7 @@ export async function launchStealthBrowser<D = unknown>(
             proxy: options.proxy,
             policy: options.policy,
             pace: options.pace,
+            input: options.input,
             startTimeoutMs: options.startTimeoutMs,
             logger,
         });

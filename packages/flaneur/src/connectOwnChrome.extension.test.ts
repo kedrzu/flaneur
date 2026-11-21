@@ -15,6 +15,8 @@ import { waitFor } from '@nzyme/utils/waitFor.js';
 import { waitUntil } from '@nzyme/utils/waitUntil.js';
 
 import { connectOwnChrome } from './connectOwnChrome.js';
+import { createHumanInput } from './createHumanInput.js';
+import type { HumanInput } from './createHumanInput.js';
 import { registerNativeHost } from './registerNativeHost.js';
 import { serveBrowser } from './serveBrowser.js';
 
@@ -163,7 +165,8 @@ test('stock Playwright drives agent tabs: locators, fill, evaluate, screenshot, 
     const pages = servePages();
     const chrome = await startChrome({ settings: { scope: 'agent' }, url: pages.url('user') });
     await chrome.whenStarted(pages, 'user');
-    const server = await chrome.serve();
+    // With the human input the CLI turns on: its paths, typing and wheel go through `chrome.debugger` too.
+    const server = await chrome.serve(10_000, createHumanInput());
 
     const browser = await chromium.connectOverCDP(server.endpoint);
     try {
@@ -466,7 +469,7 @@ async function startChrome(options: StartChromeOptions) {
     }
 
     /** Connects flaneur once the extension has, and serves it on a local endpoint. */
-    async function serve(timeoutMs = 10_000) {
+    async function serve(timeoutMs = 10_000, input?: HumanInput) {
         const { logger } = createTestLogger('OwnChrome');
         const browser = await connectOwnChrome({
             dataDir,
@@ -474,6 +477,7 @@ async function startChrome(options: StartChromeOptions) {
             registryKeys: REGISTRY_KEYS,
             launchBrowser: false,
             timeoutMs,
+            input,
             logger,
         });
         const server = await serveBrowser(browser, { logger });

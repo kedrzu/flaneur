@@ -9,6 +9,7 @@ import type { BrandOverride } from './createBrandOverride.js';
 import type { StealthDecision } from './checkStealthRequest.js';
 import { createClientAutoAttach } from './createClientAutoAttach.js';
 import { createExecutionContexts } from './createExecutionContexts.js';
+import type { HumanInputRun } from './createHumanInput.js';
 import { createIsolatedWorlds } from './createIsolatedWorlds.js';
 import type { SessionOriginator, SessionRegistry } from './createSessionRegistry.js';
 import type { SitePaceRun } from './createSitePace.js';
@@ -41,6 +42,8 @@ export interface ConnectClientParams<D> {
     policy?: CdpPolicy<D>;
     /** The site pace of the browser run: holds or refuses what acts on a site. None: nothing waits. */
     pace?: Pick<SitePaceRun, 'gate'>;
+    /** The human input of the browser run: performs the client's input as a person would. None: input goes as sent. */
+    input?: Pick<HumanInputRun, 'perform'>;
     logger: Logger;
 }
 
@@ -89,7 +92,8 @@ const TARGET_EVENTS = new Set([
  * Connects one client to the shared browser and judges each of its messages, in this order: the message shape; the
  * proxy's own rules (a session must be the client's, a target its group's, sessions flat); the caller's `policy`; the
  * same rules again on what the policy passed, so a rewrite cannot reach further than the client could; then the
- * stealth rules (`checkStealthRequest`), which no policy can lift; then the site `pace`, when there is one. Each
+ * stealth rules (`checkStealthRequest`), which no policy can lift; then the site `pace`, when there is one; then the
+ * human `input`, which may send input of its own before the command. Each
  * message takes its session's place in line when it arrives, and an async policy or a held command waits inside that
  * place, so a later command of the session never overtakes it on the wire; a command of a closed socket is never
  * sent. Only what belongs to the client is passed back: events of a session go to the client that opened it, target
@@ -99,7 +103,7 @@ const TARGET_EVENTS = new Set([
  * (`createClientAutoAttach`).
  */
 export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
-    const { clientId, group, data, socket, send, registry, brand, policy, pace, logger } = params;
+    const { clientId, group, data, socket, send, registry, brand, policy, pace, input, logger } = params;
     const originator: SessionOriginator = { type: 'client', clientId };
     const worlds = createIsolatedWorlds(send);
     const contexts = createExecutionContexts(send, sendEvent);
@@ -192,8 +196,13 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
             if (closed) {
                 return;
             }
-            const decision = await keepPace(decided);
+            const paced = await keepPace(decided);
             // The socket closed while the command was held, and no site's slot is used.
+            if (closed) {
+                return;
+            }
+            const decision = await performInput(paced);
+            // The socket closed while its input was performed: the rest of it is not sent.
             if (closed) {
                 return;
             }
@@ -260,6 +269,40 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
         }
         const verdict = await pace.gate(command);
         return verdict.type === 'refuse' ? { type: 'reject', message: verdict.message } : decision;
+    }
+
+    /**
+     * Performs a let-through input command as a person would (`HumanInputRun.perform`): the input sends what comes
+     * before it on the client's behalf, inside the session's place in line, and the command it returns goes last, its
+     * reply answering the client. When the input fails half way, the client gets the failure.
+     */
+    async function performInput(decision: StealthDecision): Promise<StealthDecision> {
+        if (input == null || decision.type !== 'forward') {
+            return decision;
+        }
+        try {
+            const command = await input.perform(decision, sendOnBehalf);
+            return { type: 'forward', ...command };
+        } catch (error) {
+            logger.debug('Input could not be performed', { error, method: decision.method });
+            const reason = error instanceof Error ? error.message : 'the input failed';
+            return { type: 'reject', message: `${decision.method}: ${reason}` };
+        }
+    }
+
+    /**
+     * Sends a command the human input makes for the client, held to the stealth rules as the client's own would be;
+     * nothing more goes once the socket closed.
+     */
+    function sendOnBehalf(method: string, commandParams: Record<string, unknown>, sessionId: string) {
+        if (closed) {
+            return Promise.reject(new Error('the client is gone'));
+        }
+        const decision = checkStealthRequest({ method, params: commandParams, sessionId }, contexts);
+        if (decision.type !== 'forward') {
+            return Promise.reject(new Error(`${method} cannot be sent for the client`));
+        }
+        return send(decision.method, decision.params, decision.sessionId);
     }
 
     /**

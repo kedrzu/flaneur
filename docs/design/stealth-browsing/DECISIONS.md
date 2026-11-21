@@ -114,12 +114,12 @@ which launch with the same flag.
 
 ## D4
 
-**Stealth is built in flaneur's CDP proxy, in layers every browser client gets. Built regardless of measurement: the
-launch flag ([D3](#d3)), the guarantee that page scripts never observe our code ([D8](#d8)), pace ([D5](#d5)) and the
-"Google Chrome" brand set over CDP on every target, workers included. Built only once the eval shows sites react to
-it: input (mouse paths and per-key typing generated from the agent's clicks and text).** (2026-11-15, design agent
-proposal; the split by measurement is the owner's choice after the rightsize review; the brand moved to the first group
-by the owner on 2026-11-16)
+**Stealth is built in flaneur's CDP proxy, in layers every browser client gets, regardless of measurement: the launch
+flag ([D3](#d3)), the guarantee that page scripts never observe our code ([D8](#d8)), pace ([D5](#d5)), the "Google
+Chrome" brand set over CDP on every target, workers included, and human input (mouse paths, a dwell before a click,
+per-key typing and wheel scrolling generated from the agent's clicks, text and scrolls).** (2026-11-15, design agent
+proposal; the brand moved to this group by the owner on 2026-11-16, input on 2026-11-21, before the eval showed
+sites react to it)
 
 **Why.** Every CDP command already passes the proxy, so a fix there covers agent-browser, site helpers in any
 language, and anything later. Vendors document client-side JS fingerprinting first and behaviour second (HUMAN:
@@ -136,9 +136,18 @@ language, and anything later. Vendors document client-side JS fingerprinting fir
 > and indeed.com and kohls.com still block it for reasons not yet known. The owner chose to remove the last known leak
 > rather than wait for a site to show it matters.
 
+> **Checked 2026-11-21:** a Playwright click through flaneur is one `Input.dispatchMouseEvent mouseMoved` exactly at
+> the element's centre, then `mousePressed` and `mouseReleased` at the same instant; `fill` and agent-browser `type`
+> send `Input.insertText`, text with no key events; scrolling into view is `DOM.scrollIntoViewIfNeeded`, with no wheel
+> events; the first action comes a fraction of a second after the page loaded (CDP log, and the test shop's input
+> recording for both clients). Akamai, HUMAN, Kasada and reCAPTCHA sensors collect these signals. The owner chose to
+> build the input layer now rather than wait for the eval to show a site reacting
+> (`packages/flaneur/src/createHumanInput.ts`, on by default in the CLI).
+
 **Rejected.**
 
-- Building the input layer up front — no evidence that it affects blocks; the agent already scores as the person does
+- Waiting for the eval before building the input layer — the measurement-first rule of 2026-11-15; the owner
+  dropped it for input on 2026-11-21, as every client's input is a known machine pattern
   ([history](history/DECISIONS.md#d4)).
 - Waiting for evidence before building the brand — the measurement-first rule the owner set on 2026-11-15; he
   dropped it for the brand once it was the last known leak ([history](history/DECISIONS.md#d4)).
