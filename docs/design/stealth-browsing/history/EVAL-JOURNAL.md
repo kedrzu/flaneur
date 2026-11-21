@@ -21,6 +21,17 @@ Runs on fresh profiles, the journeys following links by clicking.
   zara.com's "Akamai at the size step" was the login page: `/^Dodaj/` clicked the wishlist button.
 - **Not challenged:** skyscanner.pl's results and a result's page, zara.com's cart, kohls.com's cart.
 
+### Evening: the whole panel, twice
+
+After the event fix, the pace grace and the journey fixes, run `2026-11-21T15-56-51Z-sites` (flaneur driven by stock
+Playwright, eval profile, home connection, `--repeat-each 2`): 57 of 62 attempts passed. Every journey on every
+vendor — Cloudflare, Akamai, HUMAN, DataDome, Kasada, AWS WAF, Imperva, Amazon — passed both attempts, walmart.com,
+zillow.com, kohls.com and realestate.com.au included. The failures: zara.com twice, a home page that never fired `load`
+(not a block; the journey now waits for the DOM), booking.com twice, its date picker staying open over the results
+(fixed); both passed on the rerun. One real challenge: 2captcha's reCAPTCHA v3 scored 0.3 once and 0.9 once; with
+0.3, 0.9, 0.7, 0.3 and 0.9 over the day it is noisy, and without a person's reading on the same key it cannot yet tell
+how human flaneur looks.
+
 ### Cause found: Playwright's DOM events
 
 Walmart, flaneur's installed Chrome, fresh profile, input layer on, each line one or more runs:

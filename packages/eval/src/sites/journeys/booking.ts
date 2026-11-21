@@ -71,7 +71,8 @@ export const booking = defineJourney({
                 // Booking may open its date picker over the results after a search without dates.
                 const datePicker = page.getByText('Elastyczne opcje dat');
                 await datePicker.waitFor();
-                await page.keyboard.press('Escape');
+                // Escape leaves it open; a click beside it, as a person makes, closes it.
+                await page.getByRole('heading', { level: 1 }).first().click();
                 await expect(datePicker).toBeHidden();
             },
             { optional: true },

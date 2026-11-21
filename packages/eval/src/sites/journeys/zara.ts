@@ -12,7 +12,8 @@ export const zara = defineJourney({
     url: URL,
     run: async (page, step) => {
         await step('open the home page', async () => {
-            await page.goto(URL);
+            // The home page streams video and may never fire `load`; the next step waits for what it needs.
+            await page.goto(URL, { waitUntil: 'domcontentloaded' });
         });
         await step(
             'accept cookies',
