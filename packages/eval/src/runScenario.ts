@@ -1,3 +1,5 @@
+import { setTimeout } from 'node:timers/promises';
+
 import { assertNever } from '@nzyme/utils/assertNever.js';
 
 import type { EvalDriver, ScenarioStep } from './StealthEvalTypes.js';
@@ -17,7 +19,7 @@ export async function runScenario(params: RunScenarioParams) {
     const { driver, steps, pauseMs, label } = params;
     for (const [index, step] of steps.entries()) {
         if (index > 0) {
-            await Bun.sleep(pauseMs);
+            await setTimeout(pauseMs);
         }
         console.log(`[${label}] ${index + 1}/${steps.length} ${formatStep(step)}`);
         try {
@@ -47,7 +49,7 @@ async function runStep(driver: EvalDriver, step: ScenarioStep) {
         case 'scrollTo':
             return driver.scrollTo(step.selector);
         case 'wait':
-            return Bun.sleep(step.ms);
+            return setTimeout(step.ms);
         default:
             return assertNever(step);
     }

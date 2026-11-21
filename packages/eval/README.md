@@ -35,3 +35,38 @@ Run it on a real computer with a home connection: a datacenter IP is challenged 
 swamp every result. Everything the eval keeps — Chrome for Testing, agent-browser, the profile and the results — lives
 in `~/.flaneur-eval`. A result file holds what the pages reported (verdicts, failed checks, page-specific details,
 the user agent); read it before publishing one.
+
+## Site journeys
+
+A [Playwright Test](https://playwright.dev/docs/test-intro) suite (`src/sites`) that checks whether a script written
+in stock Playwright gets through real protected sites with flaneur, and does so consistently. Each journey is what a
+person shopping does: open the site, accept cookies, search, open a product, add it to a guest cart, view the cart.
+Why it is a Playwright Test suite and not a probe of `bun run eval`:
+[site-journeys-in-playwright-test](../../docs/decisions/site-journeys-in-playwright-test.md).
+
+```bash
+bun run eval:sites                                 # every journey 3 times in flaneur
+bun run eval:sites --repeat-each 1 --grep amazon   # one journey once
+bun run eval:sites --project headless              # add the plain headless Chromium as the control
+bun run eval:sites:selftest                        # the suite's own check, on local pages, offline
+```
+
+- **Journeys:** decathlon.pl (Cloudflare), vinted.pl, tripadvisor.com and etsy.com (DataDome), kohls.com and
+  zalando.pl (Akamai), walmart.com and zillow.com (HUMAN), realestate.com.au (Kasada), amazon.pl (Amazon's robot check),
+  google.com (reCAPTCHA on `/sorry/`), and the [test shop](shop/README.md), whose mean reCAPTCHA v3 score must reach
+  0.5. AWS WAF has no journey: no site behind it with a guest flow was found (checked 2026-11-21).
+- **Never:** a journey does not log in, create an account, submit a form other than the site's search, enter checkout
+  or pay. The furthest it goes is a guest cart, and the eval profile's carts grow with every run.
+- **Failures:** each failed attempt is `challenged` (a vendor's challenge, with its marker), `refused` (flaneur's
+  pace refused the site after a challenge) or `broken` (anything else, usually a changed page). A `broken` journey
+  needs fixing; a `challenged` one is the measurement.
+- **Results:** a table at the end of the run — attempts passed out of those executed (refused ones apart), the
+  classes, the vendors, the step a journey fails at most, and whether the control passes too, which makes the
+  journey tell nothing apart. It is saved as `~/.flaneur-eval/results/<time>-sites.json`; screenshots of failed
+  attempts are in `~/.flaneur-eval/sites`.
+- **Repeats:** `--repeat-each` runs the journeys in turns (all once, then all again), with one flaneur and one pace
+  for the whole run. After a challenge flaneur pauses the site for 5 minutes and stops it for an hour after a second,
+  so later attempts on it are `refused`.
+- The control spends the connection's reputation (DataDome flags the IP after a headless visit), so it runs only when
+  named. Allegro stays with the `allegro` probe of `bun run eval`.
+- The suite runs on Node, under Playwright's own runner; its `*.spec.ts` files are not `bun test` files.

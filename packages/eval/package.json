@@ -7,7 +7,9 @@
     "type": "module",
     "scripts": {
         "build": "tsgo --build tsconfig.esm.json",
-        "eval": "bun src/stealthEval.ts"
+        "eval": "bun src/stealthEval.ts",
+        "eval:sites": "playwright test -c src/sites/playwright.config.ts --project flaneur --repeat-each 3",
+        "eval:sites:selftest": "playwright test -c src/sites/selftest.config.ts"
     },
     "dependencies": {
         "@nzyme/logging": "workspace:*",

@@ -12,15 +12,16 @@ const DELIVERY_DAYS_AHEAD = 7;
 /**
  * The shop visit every runner makes: cookies, a search, a filter, paging, two products (one read through), the cart
  * and the order form submitted once empty and once filled. It ends by opening the list again, because the shop writes a
- * page's scroll record only when the page is left. Every selector was checked against the live shop.
+ * page's scroll record only when the page is left. Every selector was checked against the live shop. `shopUrl` is
+ * another copy of the shop, e.g. one served locally by the sites selftest.
  * @__NO_SIDE_EFFECTS__
  */
-export function createShopScenario(today: Date): ScenarioStep[] {
+export function createShopScenario(today: Date, shopUrl = SHOP_URL): ScenarioStep[] {
     const deliveryDate = new Date(today.getTime() + DELIVERY_DAYS_AHEAD * 24 * 60 * 60 * 1000);
     const isoDate = deliveryDate.toISOString().slice(0, 10);
 
     return [
-        { kind: 'open', url: SHOP_URL },
+        { kind: 'open', url: shopUrl },
         { kind: 'click', selector: '#cookie-accept', label: 'przycisk „Accept all” w okienku o ciasteczkach' },
         { kind: 'type', selector: '#search-input', text: 'grinder', label: 'pole wyszukiwania u góry strony' },
         { kind: 'press', key: 'Enter' },

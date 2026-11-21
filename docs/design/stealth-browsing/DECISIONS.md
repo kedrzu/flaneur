@@ -324,6 +324,10 @@ browser off loopback. The eval lives in `packages/eval` (`bun run eval`).
 > token in the page ([D11](#d11)); the eval reads the scores from it. First runs: the agent's browser averaged 0.68
 > and the plain headless Chromium 0.08 over the same visit.
 
+> **2026-11-21:** a second path is measured beside agent-browser: stock Playwright over flaneur's proxy, in a
+> Playwright Test suite of journeys on real protected sites (search, product, guest cart), each repeated, with the
+> headless control on request — [site-journeys-in-playwright-test](../../decisions/site-journeys-in-playwright-test.md).
+
 **Rejected.**
 
 - Running the eval in CI — datacenter IP.
