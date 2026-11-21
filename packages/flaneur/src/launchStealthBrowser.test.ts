@@ -98,6 +98,10 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('message', event => event.source.postMessage(identity));`;
 /** How many pages the brand of a page opened with a URL is checked on: it once failed 2 runs of 6. */
 const OPENED_WITH_URL_RUNS = 6;
+/** Playwright's browser-level auto-attach. */
+const AUTO_ATTACH = { autoAttach: true, waitForDebuggerOnStart: true, flatten: true };
+/** A page that covers itself with a button that opens `/popup` in a popup window. */
+const OPENER_HTML = `<!doctype html><html><body><button style="position: fixed; inset: 0" onclick="window.open('/popup', '_blank', 'popup')">Open</button></body></html>`;
 
 /** What `DETECTOR_HTML` writes to its page. */
 interface DetectorFindings {
@@ -119,6 +123,14 @@ interface TestClient {
     call(method: string, params?: object, sessionId?: string): Promise<unknown>;
     /** Settles with the code and reason the proxy closed the socket with. */
     closed: Promise<[number | undefined, string | undefined]>;
+}
+
+/** A page a client was auto-attached to, from its `Target.attachedToTarget`. */
+interface AttachedPage {
+    targetId: string;
+    sessionId: string;
+    openerId?: string;
+    waitingForDebugger: boolean;
 }
 
 /** A request the test's proxy got: its path, whether it carried a login and whether the login was right. */
@@ -302,6 +314,60 @@ test('a page script sees no enabled Runtime and nothing the client runs, while t
     // The control: the detector does catch an enabled Runtime, here enabled by the browser's owner past the proxy.
     await browser.send('Runtime.enable', {}, await browser.attach(targetId));
     await waitUntil(async () => isDetected(await readDetections(client, sessionId)), { timeoutMs: TIMEOUT_MS });
+}, 30_000);
+
+test("with Runtime enabled a client is told of each document's contexts, which run in isolated worlds and end with their document", async () => {
+    const browser = await startBrowser();
+    const client = connectClient(browser, 'group-a');
+    const targetId = await createTarget(client);
+    const sessionId = await attachClient(client, targetId);
+    await servePages(client, sessionId, { [DETECTOR_URL]: DETECTOR_HTML, [OTHER_SITE_URL]: DETECTOR_HTML });
+    // What Playwright sends for its utility world.
+    await client.call('Runtime.enable', {}, sessionId);
+    await client.call(
+        'Page.createIsolatedWorld',
+        { frameId: targetId, worldName: 'pw-utility', grantUniveralAccess: true },
+        sessionId,
+    );
+    await client.call('Page.addScriptToEvaluateOnNewDocument', { source: '', worldName: 'pw-utility' }, sessionId);
+    await navigate(client, sessionId, DETECTOR_URL);
+    const before = announcedContexts(client);
+
+    const from = client.messages.length;
+    await navigate(client, sessionId, OTHER_SITE_URL);
+    const after = announcedContexts(client);
+    // Each context of the old document is destroyed before the new document is announced, and that before its load.
+    const events = client.messages.slice(from).map(message => {
+        const params = isPlainObject(message['params']) ? message['params'] : {};
+        return message['method'] === 'Runtime.executionContextDestroyed'
+            ? `destroyed ${String(params['executionContextId'])}`
+            : message['method'];
+    });
+    const navigated = events.indexOf('Page.frameNavigated');
+    expect(events.slice(navigated - 2, navigated + 3)).toEqual([
+        `destroyed ${String(before.main)}`,
+        `destroyed ${String(before.utility)}`,
+        'Page.frameNavigated',
+        'Runtime.executionContextCreated',
+        'Runtime.executionContextCreated',
+    ]);
+    expect(events.indexOf('Page.loadEventFired')).toBeGreaterThan(navigated + 2);
+
+    const inWorld = '[location.href, typeof Error.prepareStackTrace]';
+    expect(await evaluateIn(client, sessionId, inWorld, { contextId: after.main })).toEqual([
+        OTHER_SITE_URL,
+        'undefined',
+    ]);
+    expect(await evaluateIn(client, sessionId, inWorld, { contextId: after.utility })).toEqual([
+        OTHER_SITE_URL,
+        'undefined',
+    ]);
+    await expect(
+        client.call('Runtime.evaluate', { expression: '1', contextId: before.main }, sessionId),
+    ).rejects.toThrow('announced for the current document');
+    await Bun.sleep(300);
+    const clean: DetectorFindings = { runtime: 0, globals: [], querySelector: 0 };
+    expect(await readDetections(client, sessionId)).toEqual(clean);
 }, 30_000);
 
 test('a node of a framed page resolves into its own frame, out of reach of every page script', async () => {
@@ -498,40 +564,125 @@ test('a page, its frame, its worker and its service worker all name Google Chrom
     expect(serviceWorker).toEqual(page);
 }, 30_000);
 
-test('a page a client opens with a URL names Google Chrome from its first script, every time', async () => {
-    // Loopback is a secure context, which `navigator.userAgentData` needs; the page loads before anyone attaches.
+test.each([
+    ['', false],
+    [', with browser auto-attach on', true],
+])(
+    'a page a client opens with a URL names Google Chrome from its first script, every time%s',
+    async (_name, autoAttach) => {
+        // Loopback is a secure context, which `navigator.userAgentData` needs; the page loads before anyone attaches.
+        const server = Bun.serve({
+            hostname: '127.0.0.1',
+            port: 0,
+            fetch: () => new Response(BRAND_HTML, { headers: { 'content-type': 'text/html' } }),
+        });
+        cleanups.push(() => server.stop(true));
+        const browser = await startBrowser();
+        const client = connectClient(browser, 'group-a');
+        if (autoAttach) {
+            // As Playwright does, the client lets each page it is attached to run at once.
+            resumeAttachedPages(client);
+            await client.call('Target.setAutoAttach', AUTO_ATTACH);
+        }
+
+        const seen: unknown[] = [];
+        for (let run = 0; run < OPENED_WITH_URL_RUNS; run++) {
+            const reply = await client.call('Target.createTarget', {
+                url: `http://127.0.0.1:${server.port}/?run=${run}`,
+            });
+            expect(Object.keys(isPlainObject(reply) ? reply : {})).toEqual(['targetId']);
+            // Read in the page's own world, where its script keeps them: the owner's session reaches it, a client's not.
+            const sessionId = await browser.attach(isPlainObject(reply) ? String(reply['targetId']) : '');
+            let identities: unknown;
+            await waitUntil(
+                async () => {
+                    identities = await evaluate(browser, sessionId, 'window.identities');
+                    return isPlainObject(identities) && identities['worker'] != null;
+                },
+                { timeoutMs: TIMEOUT_MS },
+            );
+            seen.push(identities);
+        }
+
+        for (const identities of seen) {
+            const page = isPlainObject(identities) ? identities['page'] : undefined;
+            expect(page).toContain('Google Chrome');
+            expect(identities).toEqual({ page, worker: page });
+        }
+    },
+    60_000,
+);
+
+test("browser auto-attach announces a group's pages to a client that connects later, the one used last first, and no other group's", async () => {
+    const browser = await startBrowser();
+    const first = connectClient(browser, 'group-a');
+    const older = await createTarget(first);
+    const newer = await createTarget(first);
+
+    const second = connectClient(browser, 'group-a');
+    await second.call('Target.setAutoAttach', AUTO_ATTACH);
+    const other = connectClient(browser, 'group-b');
+    await other.call('Target.setAutoAttach', AUTO_ATTACH);
+
+    const attached = attachedPages(second);
+    expect(attached.map(page => page.targetId)).toEqual([newer, older]);
+    expect(await evaluateIn(second, attached[0]!.sessionId, '6 * 7')).toBe(42);
+    expect(attachedPages(other)).toEqual([]);
+}, 30_000);
+
+test('a popup a page opens on a click is auto-attached to the client, and names Google Chrome from its first script', async () => {
+    // Loopback is a secure context, which `navigator.userAgentData` needs.
     const server = Bun.serve({
         hostname: '127.0.0.1',
         port: 0,
-        fetch: () => new Response(BRAND_HTML, { headers: { 'content-type': 'text/html' } }),
+        fetch: request =>
+            new Response(new URL(request.url).pathname === '/popup' ? BRAND_HTML : OPENER_HTML, {
+                headers: { 'content-type': 'text/html' },
+            }),
     });
     cleanups.push(() => server.stop(true));
     const browser = await startBrowser();
     const client = connectClient(browser, 'group-a');
+    resumeAttachedPages(client);
+    await client.call('Target.setAutoAttach', AUTO_ATTACH);
+    const opener = await createTarget(client);
+    const openerSession = attachedPages(client).find(page => page.targetId === opener)?.sessionId ?? '';
+    await client.call('Page.enable', {}, openerSession);
+    await navigate(client, openerSession, `http://127.0.0.1:${server.port}/`);
 
-    const seen: unknown[] = [];
-    for (let run = 0; run < OPENED_WITH_URL_RUNS; run++) {
-        const reply = await client.call('Target.createTarget', { url: `http://127.0.0.1:${server.port}/?run=${run}` });
-        expect(Object.keys(isPlainObject(reply) ? reply : {})).toEqual(['targetId']);
-        // Read in the page's own world, where its script keeps them: the owner's session reaches it, a client's not.
-        const sessionId = await browser.attach(isPlainObject(reply) ? String(reply['targetId']) : '');
-        let identities: unknown;
-        await waitUntil(
-            async () => {
-                identities = await evaluate(browser, sessionId, 'window.identities');
-                return isPlainObject(identities) && identities['worker'] != null;
-            },
-            { timeoutMs: TIMEOUT_MS },
+    for (const type of ['mousePressed', 'mouseReleased']) {
+        await client.call(
+            'Input.dispatchMouseEvent',
+            { type, x: 10, y: 10, button: 'left', clickCount: 1 },
+            openerSession,
         );
-        seen.push(identities);
     }
+    let popup: AttachedPage | undefined;
+    await waitUntil(
+        () => {
+            popup = attachedPages(client).find(page => page.openerId === opener);
+            return popup != null;
+        },
+        { timeoutMs: TIMEOUT_MS },
+    );
 
-    for (const identities of seen) {
-        const page = isPlainObject(identities) ? identities['page'] : undefined;
-        expect(page).toContain('Google Chrome');
-        expect(identities).toEqual({ page, worker: page });
-    }
-}, 60_000);
+    // Claimed for the client only because Chrome reports its explicit attach as not waiting for the debugger.
+    expect(popup?.waitingForDebugger).toBe(false);
+    expect(browser.groups.of(popup?.targetId ?? '')).toBe('group-a');
+    expect(await evaluateIn(client, popup?.sessionId ?? '', '6 * 7')).toBe(42);
+    const sessionId = await browser.attach(popup?.targetId ?? '');
+    let identities: unknown;
+    await waitUntil(
+        async () => {
+            identities = await evaluate(browser, sessionId, 'window.identities');
+            return isPlainObject(identities) && identities['worker'] != null;
+        },
+        { timeoutMs: TIMEOUT_MS },
+    );
+    const page = isPlainObject(identities) ? identities['page'] : undefined;
+    expect(page).toContain('Google Chrome');
+    expect(identities).toEqual({ page, worker: page });
+}, 30_000);
 
 test('a browser exit closes every client socket', async () => {
     const browser = await startBrowser();
@@ -861,6 +1012,24 @@ function findNodes(root: unknown, matches: (node: Record<string, unknown>) => bo
     return found;
 }
 
+/** The ids of the main frame's contexts a client was last told were created: the default one and `pw-utility`. */
+function announcedContexts(client: TestClient) {
+    const announced: { main?: unknown; utility?: unknown } = {};
+    for (const message of client.messages) {
+        const params = message['params'];
+        const context = isPlainObject(params) ? params['context'] : undefined;
+        if (message['method'] !== 'Runtime.executionContextCreated' || !isPlainObject(context)) {
+            continue;
+        }
+        if (context['name'] === '') {
+            announced.main = context['id'];
+        } else if (context['name'] === 'pw-utility') {
+            announced.utility = context['id'];
+        }
+    }
+    return announced;
+}
+
 /** The session a client was auto-attached to a worker on. */
 function findWorkerSession(client: TestClient) {
     for (const message of client.messages) {
@@ -876,6 +1045,42 @@ function findWorkerSession(client: TestClient) {
         }
     }
     return undefined;
+}
+
+/** The pages a client was auto-attached to, in order. */
+function attachedPages(client: TestClient) {
+    const pages: AttachedPage[] = [];
+    for (const message of client.messages) {
+        const params = message['params'];
+        const info = isPlainObject(params) ? params['targetInfo'] : undefined;
+        if (
+            message['method'] !== 'Target.attachedToTarget' ||
+            message['sessionId'] != null ||
+            !isPlainObject(params) ||
+            !isPlainObject(info) ||
+            info['type'] !== 'page'
+        ) {
+            continue;
+        }
+        pages.push({
+            targetId: String(info['targetId']),
+            sessionId: String(params['sessionId']),
+            openerId: typeof info['openerId'] === 'string' ? info['openerId'] : undefined,
+            waitingForDebugger: params['waitingForDebugger'] === true,
+        });
+    }
+    return pages;
+}
+
+/** Resumes each page the client is auto-attached to as it is announced, as Playwright does. */
+function resumeAttachedPages(client: TestClient) {
+    client.onMessage(message => {
+        const params = message['params'];
+        if (message['method'] === 'Target.attachedToTarget' && isPlainObject(params)) {
+            // A page can be gone before its command arrives.
+            client.call('Runtime.runIfWaitingForDebugger', {}, String(params['sessionId'])).catch(() => {});
+        }
+    });
 }
 
 function targetIdsOf(reply: unknown) {

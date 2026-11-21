@@ -2,6 +2,7 @@ import { assert } from '@nzyme/utils/assert.js';
 import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
 
 import { CdpError } from './CdpTypes.js';
+import { readFrameTree } from './readFrameTree.js';
 
 /**
  * The isolated world every client's evaluation, resolved node and init script lands in unless the client names a world
@@ -9,7 +10,10 @@ import { CdpError } from './CdpTypes.js';
  */
 export const ISOLATED_WORLD_NAME = 'utility';
 
-/** An isolated world a client created with `Page.createIsolatedWorld`, as it asked for it. */
+/**
+ * An isolated world in one frame, by what it is created again with: one a client created with
+ * `Page.createIsolatedWorld`, as it asked for it, or the proxy's own (`ISOLATED_WORLD_NAME`).
+ */
 export interface ClientWorld {
     frameId: string;
     /** Never empty: an unnamed world is a new one on every call, so it could not be created again by name. */
@@ -29,24 +33,18 @@ export interface IsolatedCall {
     sessionId: string;
     /** The parameter naming the execution context: `contextId` for `Runtime.evaluate`, else `executionContextId`. */
     contextParam: 'contextId' | 'executionContextId';
-    /** The client's own world the call named by the id it was given (`IsolatedWorlds.findClientWorld`). */
+    /** The world the call named by a context id the client was given (`ExecutionContexts.find`). */
     world?: ClientWorld;
 }
 
 /** The proxy's isolated worlds as one client uses them. */
 export interface IsolatedWorlds {
-    /** Forgets a detached session, with the worlds its client created on it. */
-    forget(sessionId: string): void;
     /**
      * Sends `call` with its context set to its world (`IsolatedCall`) in its frame, created (or, for the current
      * document, found) first. A navigation between the two invalidates the context; the call is then resolved again
      * and retried once.
      */
     send(call: IsolatedCall): Promise<unknown>;
-    /** Creates a client's own world on `sessionId` and records it under the context id the reply gives the client. */
-    createClientWorld(sessionId: string, world: ClientWorld): Promise<unknown>;
-    /** The client's own world a context id it was given on `sessionId` names; none for any other id. */
-    findClientWorld(sessionId: string, contextId: number): ClientWorld | undefined;
 }
 
 /** The browser's errors for a context or frame that went away with a navigation. */
@@ -72,34 +70,14 @@ interface Resolution {
  * Creates the isolated-world access of one client. Context ids are never cached, nor forwarded from the client:
  * Chrome reuses them across renderer processes, so after a cross-site navigation a remembered id can name the page's
  * own world. Each call asks `Page.createIsolatedWorld` again, which returns the existing world for the current
- * document; an id the client got for its own world only looks up which world to ask for.
+ * document; the ids a client is given are the proxy's own (`createExecutionContexts`) and only look up which world to
+ * ask for.
  * @__NO_SIDE_EFFECTS__
  */
 export function createIsolatedWorlds(
     sendCommand: (method: string, params?: object, sessionId?: string) => Promise<unknown>,
 ): IsolatedWorlds {
-    /** The worlds clients created, by session, then by the context id the client was given. */
-    const clientWorlds = new Map<string, Map<number, ClientWorld>>();
-
-    return {
-        forget: sessionId => {
-            clientWorlds.delete(sessionId);
-        },
-        send,
-        createClientWorld,
-        findClientWorld: (sessionId, contextId) => clientWorlds.get(sessionId)?.get(contextId),
-    };
-
-    async function createClientWorld(sessionId: string, world: ClientWorld) {
-        const reply = await sendCommand('Page.createIsolatedWorld', { ...world }, sessionId);
-        const contextId = isPlainObject(reply) ? reply['executionContextId'] : undefined;
-        if (typeof contextId === 'number') {
-            const worlds = clientWorlds.get(sessionId) ?? new Map<number, ClientWorld>();
-            worlds.set(contextId, world);
-            clientWorlds.set(sessionId, worlds);
-        }
-        return reply;
-    }
+    return { send };
 
     async function send(call: IsolatedCall) {
         try {
@@ -209,24 +187,6 @@ export function createIsolatedWorlds(
             }
             throw error;
         }
-        const frameIds: string[] = [];
-        const pending: unknown[] = [isPlainObject(reply) ? reply['frameTree'] : undefined];
-        while (pending.length > 0) {
-            const tree = pending.shift();
-            if (!isPlainObject(tree)) {
-                continue;
-            }
-            const frame = tree['frame'];
-            const frameId = isPlainObject(frame) ? frame['id'] : undefined;
-            if (typeof frameId === 'string') {
-                frameIds.push(frameId);
-            }
-            const children = tree['childFrames'];
-            if (Array.isArray(children)) {
-                const list: readonly unknown[] = children;
-                pending.push(...list);
-            }
-        }
-        return frameIds;
+        return readFrameTree(reply).map(frame => frame.id);
     }
 }

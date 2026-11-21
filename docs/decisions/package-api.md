@@ -47,7 +47,8 @@ The hybrid.
   keeps a tampered archive from ever being unpacked. A caller may name another version, which is downloaded
   unverified. By default the CLI uses the installed Google Chrome, which the user keeps up to date.
 - **Playwright and Puppeteer are out on purpose.** Both need an enabled Runtime in the page, which the stealth rules
-  never allow.
+  never allow. *Superseded for Playwright on 2026-11-21: the proxy emulates what it needs
+  ([playwright-compatibility](playwright-compatibility.md)).*
 
 ## Consequences
 
@@ -56,5 +57,5 @@ The hybrid.
 - A host cannot reorder or replace the stealth rules; a rule a host needs that the policy cannot express is a change
   to the package.
 - Every Chrome for Testing bump re-checks the brand's expected lists and pins four new checksums.
-- Clients get no page console and no page globals; a client written for Playwright or Puppeteer has to move to raw
-  CDP or a CDP-level tool such as agent-browser.
+- Clients get no page console and no page globals. Stock Playwright works since 2026-11-21, within these limits
+  ([playwright-compatibility](playwright-compatibility.md)); Puppeteer is untested.

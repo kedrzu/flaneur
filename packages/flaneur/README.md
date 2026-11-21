@@ -157,6 +157,39 @@ extension, any program running as you can drive your signed-in Chrome. That is t
 debugging switches on your own profile; the yellow bar shows when it happens. Remove or turn off the extension in
 `chrome://extensions` when you do not want it. Why it is built this way: [`docs/decisions/own-chrome.md`](../../docs/decisions/own-chrome.md).
 
+### With Playwright
+
+Stock Playwright connects to the endpoint and works in the browser's one context:
+
+```ts
+import { chromium } from 'playwright';
+
+const browser = await chromium.connectOverCDP(endpoint);
+const context = browser.contexts()[0];
+const page = context.pages()[0] ?? (await context.newPage());
+await page.goto('https://example.com');
+console.log(await page.getByRole('paragraph').first().textContent());
+await browser.close(); // disconnects; the pages stay open for the next script
+```
+
+Locators, auto-waiting, `fill`, `evaluate`, screenshots, `ariaSnapshot`, `route`, popups and frames work, on a launched
+Chrome and on `--chrome own`. A script connecting later sees the pages an earlier one left, the one used last first.
+What does not, because page scripts must never observe the client ([The price of isolation](#the-price-of-isolation)):
+
+- `evaluate` and `addInitScript` run in an isolated world: the page's DOM, not its globals, and the page never sees
+  theirs;
+- `exposeFunction`, `exposeBinding`, `console` and `pageerror` events;
+- `browser.newContext()` and `browser.newPage()`: there is one profile, so use `browser.contexts()[0]`; context
+  options such as `userAgent` or `locale` come with a new context, so they are out too;
+- `worker.evaluate` fails; download events never fire;
+- `page.setContent()` waits for a console message of its own, so it hangs until its timeout: `goto` a `data:text/html`
+  URL instead;
+- with `--chrome own`: the context's cookie and permission methods (`cookies()`, `storageState()`,
+  `grantPermissions()`), which need the browser target, and a tab another client already drives.
+
+Navigations keep to the pace: a second load of a site within seconds waits, and `goto` with it. How it works:
+[`docs/decisions/playwright-compatibility.md`](../../docs/decisions/playwright-compatibility.md).
+
 ### With agent-browser
 
 ```bash
@@ -223,5 +256,7 @@ Page scripts must never observe the client, so the proxy never enables Runtime, 
 
 - every evaluation runs in an isolated world, which shares the page's DOM but not its globals, so a client reads the
   page's variables only through the DOM;
-- the client gets no page console messages and no execution context events;
-- Playwright and Puppeteer do not work: both need an enabled Runtime. They are out on purpose, not a missing feature.
+- the client gets no page console messages; the execution context events it gets are the proxy's, for isolated
+  worlds;
+- with Playwright, `evaluate` sees the page's DOM but not its globals; `exposeFunction`, `exposeBinding`, `console` and
+  `pageerror` events and `browser.newContext()` fail at once, saying why ([With Playwright](#with-playwright)).

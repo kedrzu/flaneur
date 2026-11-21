@@ -3,8 +3,10 @@ import { expect, mock, test } from 'bun:test';
 import { createTestLogger } from '@nzyme/logging/createTestLogger.js';
 import { isPlainObject } from '@nzyme/utils/isPlainObject.js';
 
-import type { CdpPolicy, CdpRequest } from './CdpTypes.js';
+import { CdpError } from './CdpTypes.js';
+import type { CdpEvent, CdpPolicy, CdpRequest } from './CdpTypes.js';
 import { connectClient } from './connectClient.js';
+import { ISOLATED_WORLD_NAME } from './createIsolatedWorlds.js';
 import { createSessionRegistry } from './createSessionRegistry.js';
 import type { SessionRegistry } from './createSessionRegistry.js';
 import { ATTACH_SITE_PACE, createSitePace } from './createSitePace.js';
@@ -16,6 +18,9 @@ interface SentCommand {
     params?: object;
     sessionId?: string;
 }
+
+/** Playwright's browser-level auto-attach. */
+const AUTO_ATTACH = { autoAttach: true, waitForDebuggerOnStart: true, flatten: true };
 
 /** Messages a client must never get through to the browser, with or without a policy. */
 const REFUSED: [string, Record<string, unknown>, string | undefined][] = [
@@ -33,8 +38,6 @@ const REFUSED: [string, Record<string, unknown>, string | undefined][] = [
     ['Target.detachFromTarget', { sessionId: 's-b' }, undefined],
     ['Target.detachFromTarget', { sessionId: 's-proxy' }, undefined],
     ['Target.detachFromTarget', { targetId: 't-a' }, undefined],
-    // Auto-attach at the browser would attach the client to every target.
-    ['Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, undefined],
     // The stealth rules.
     ['Runtime.addBinding', { name: 'binding' }, 's-a'],
     ['Runtime.compileScript', { expression: '1', sourceURL: '', persistScript: true }, 's-a'],
@@ -143,6 +146,27 @@ test("a closed socket's commands never reach the browser", async () => {
     expect(client.messages).toEqual([]);
 });
 
+test("a client's download behavior is answered without reaching the browser", async () => {
+    const { browser, client } = prepare({});
+
+    const reply = await client.call('Browser.setDownloadBehavior', { behavior: 'deny', eventsEnabled: true });
+
+    expect(reply).toEqual({ id: 1, result: {} });
+    expect(browser.sent).toEqual([]);
+});
+
+test('a reply names the session of its command, as Chrome does, whether forwarded, answered or refused', async () => {
+    const { client } = prepare({});
+
+    const forwarded = await client.call('Page.reload', {}, 's-a');
+    const answered = await client.call('Console.enable', {}, 's-a');
+    const refused = await client.call('Runtime.addBinding', { name: 'binding' }, 's-a');
+
+    expect(forwarded).toEqual({ id: 1, sessionId: 's-a', result: {} });
+    expect(answered).toEqual({ id: 2, sessionId: 's-a', result: {} });
+    expect(refused).toMatchObject({ id: 3, sessionId: 's-a', error: { code: -32_000 } });
+});
+
 test('sessions are flat, and an auto-attach is set on a session', async () => {
     const { browser, client } = prepare({});
 
@@ -156,6 +180,122 @@ test('sessions are flat, and an auto-attach is set on a session', async () => {
             params: { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
             sessionId: 's-a',
         },
+    ]);
+});
+
+test("browser-level auto-attach never reaches the browser: the client is attached to its group's pages, the one used last first, each once", async () => {
+    const { browser, client, registry } = prepare({});
+    registry.claimTarget('group-a', 't-a2');
+
+    const reply = await client.call('Target.setAutoAttach', AUTO_ATTACH);
+    const announcedFirst = attachedTargets(client.messages);
+    // A popup of a page of the group joins it; one of another group's page, and a page of no group, do not.
+    browser.emit({ method: 'Target.targetCreated', params: { targetInfo: { ...pageInfo('t-pop'), openerId: 't-a' } } });
+    browser.emit({
+        method: 'Target.targetCreated',
+        params: { targetInfo: { ...pageInfo('t-pop-b'), openerId: 't-b' } },
+    });
+    browser.emit({ method: 'Target.targetCreated', params: { targetInfo: pageInfo('t-stranger') } });
+    browser.emit({
+        method: 'Target.targetInfoChanged',
+        params: { targetInfo: { ...pageInfo('t-pop'), openerId: 't-a' } },
+    });
+    await client.call('Target.setAutoAttach', AUTO_ATTACH);
+    await Bun.sleep(10);
+
+    expect(reply).toEqual({ id: 1, result: {} });
+    expect(announcedFirst).toEqual(['t-a2', 't-a']);
+    expect(browser.sent).toEqual([
+        { method: 'Target.attachToTarget', params: { targetId: 't-a2', flatten: true } },
+        { method: 'Target.attachToTarget', params: { targetId: 't-a', flatten: true } },
+        { method: 'Target.attachToTarget', params: { targetId: 't-pop', flatten: true } },
+    ]);
+    expect(attachedTargets(client.messages)).toEqual(['t-a2', 't-a', 't-pop']);
+});
+
+test('each attach of the auto-attach is judged by the policy, whose refusal leaves the page out', async () => {
+    const judged: unknown[] = [];
+    const { browser, client, registry } = prepare({
+        policy: request => {
+            judged.push(request.params['targetId']);
+            return request.params['targetId'] === 't-a2' ? { reject: 'not this one' } : request;
+        },
+    });
+    registry.claimTarget('group-a', 't-a2');
+
+    await client.call('Target.setAutoAttach', AUTO_ATTACH);
+
+    expect(judged).toEqual([undefined, 't-a2', 't-a']);
+    expect(browser.sent).toEqual([{ method: 'Target.attachToTarget', params: { targetId: 't-a', flatten: true } }]);
+    expect(attachedTargets(client.messages)).toEqual(['t-a']);
+});
+
+test("with no group, auto-attach attaches the client to every page but the proxy's own, and to no frame", async () => {
+    const { browser, client } = prepare({
+        ungrouped: true,
+        answer: command =>
+            command.method === 'Target.getTargets'
+                ? Promise.resolve({
+                      targetInfos: [pageInfo('t-a'), pageInfo('t-proxy'), { targetId: 't-frame', type: 'iframe' }],
+                  })
+                : undefined,
+    });
+
+    await client.call('Target.setAutoAttach', AUTO_ATTACH);
+    browser.emit({ method: 'Target.targetCreated', params: { targetInfo: pageInfo('t-b') } });
+    browser.emit({ method: 'Target.targetCreated', params: { targetInfo: { targetId: 't-frame2', type: 'iframe' } } });
+    await Bun.sleep(10);
+
+    expect(attachedTargets(client.messages)).toEqual(['t-a', 't-b']);
+});
+
+test('with auto-attach on, a page the client creates is attached once the proxy navigated it, and announced before the reply', async () => {
+    // With no group, the client sees the page from the browser's `Target.targetCreated` on, before the reply.
+    const { browser, client } = prepare({ ungrouped: true });
+    await client.call('Target.setAutoAttach', AUTO_ATTACH);
+
+    await client.call('Target.createTarget', { url: 'https://example.com/' });
+    await Bun.sleep(10);
+
+    // With `--chrome own` a page has one session: the client's must come after the proxy's navigation session.
+    expect(browser.sent).toEqual([
+        { method: 'Target.getTargets', params: {} },
+        { method: 'Target.createTarget', params: { url: 'about:blank', newWindow: true, background: true } },
+        { method: 'Target.attachToTarget', params: { targetId: 't-new', flatten: true } },
+        { method: 'Page.navigate', params: { url: 'https://example.com/' }, sessionId: 's-new' },
+        { method: 'Target.detachFromTarget', params: { sessionId: 's-new' } },
+        { method: 'Target.attachToTarget', params: { targetId: 't-new', flatten: true } },
+    ]);
+    expect(client.messages.map(message => message['method'] ?? message['id'])).toEqual([
+        1,
+        'Target.attachedToTarget',
+        2,
+    ]);
+});
+
+test('closing the client detaches its auto-attached sessions, one attached after it closed too', async () => {
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
+    const { browser, client, registry } = prepare({
+        answer: command =>
+            command.method === 'Target.attachToTarget' &&
+            isPlainObject(command.params) &&
+            command.params['targetId'] === 't-a2'
+                ? held.then(() => ({ sessionId: 's-late' }))
+                : undefined,
+    });
+    registry.claimTarget('group-a', 't-a2');
+    registry.claimTarget('group-a', 't-a');
+
+    void client.call('Target.setAutoAttach', AUTO_ATTACH);
+    // `t-a` is attached by now, `t-a2` is not.
+    await Bun.sleep(10);
+    client.client.close();
+    release();
+    await Bun.sleep(10);
+
+    expect(browser.sent.filter(sent => sent.method === 'Target.detachFromTarget')).toEqual([
+        { method: 'Target.detachFromTarget', params: { sessionId: 's-new' } },
+        { method: 'Target.detachFromTarget', params: { sessionId: 's-late' } },
     ]);
 });
 
@@ -238,18 +378,153 @@ test("a page created with a URL takes its site's slot once, the proxy's navigati
     });
 });
 
+test('with Runtime enabled, the browser never gets it, and every call naming a context runs in an isolated world', async () => {
+    const { browser, client, registry } = prepare({ answer: answerPage });
+    registry.claimSession({ type: 'client', clientId: 'c-a' }, 's-worker', 't-a');
+
+    await client.call('Runtime.enable', {}, 's-a');
+    const [main] = createdIds(client.messages);
+    const world = await client.call(
+        'Page.createIsolatedWorld',
+        { frameId: 'f-main', worldName: 'utility-pw', grantUniveralAccess: true },
+        's-a',
+    );
+    const worldId = isPlainObject(world['result']) ? world['result']['executionContextId'] : undefined;
+    expect(createdIds(client.messages)).toEqual([main, worldId]);
+    browser.sent.length = 0;
+
+    await client.call('Runtime.evaluate', { expression: '1', contextId: main }, 's-a');
+    await client.call('DOM.resolveNode', { backendNodeId: 5, executionContextId: worldId }, 's-a');
+    expect(browser.sent).toEqual([
+        {
+            method: 'Page.createIsolatedWorld',
+            params: { frameId: 'f-main', worldName: ISOLATED_WORLD_NAME, grantUniveralAccess: false },
+            sessionId: 's-a',
+        },
+        { method: 'Runtime.evaluate', params: { expression: '1', contextId: 1000 }, sessionId: 's-a' },
+        {
+            method: 'Page.createIsolatedWorld',
+            params: { frameId: 'f-main', worldName: 'utility-pw', grantUniveralAccess: true },
+            sessionId: 's-a',
+        },
+        { method: 'DOM.resolveNode', params: { backendNodeId: 5, executionContextId: 1001 }, sessionId: 's-a' },
+    ]);
+    browser.sent.length = 0;
+
+    // A worker's context, and an id of a document gone, never reach the browser.
+    await client.call('Runtime.enable', {}, 's-worker');
+    const [, , worker] = createdIds(client.messages);
+    const inWorker = await client.call('Runtime.evaluate', { expression: '1', contextId: worker }, 's-worker');
+    expect(inWorker['error']).toMatchObject({ message: 'Runtime.evaluate: Code cannot run in a worker' });
+    browser.emit({ method: 'Page.frameNavigated', params: { frame: { id: 'f-main' } }, sessionId: 's-a' });
+    const gone = await client.call('Runtime.evaluate', { expression: '1', contextId: main }, 's-a');
+    expect(isPlainObject(gone['error']) ? gone['error']['message'] : undefined).toContain(
+        'announced for the current document',
+    );
+    expect(browser.sent).toEqual([{ method: 'Page.getFrameTree', params: {}, sessionId: 's-worker' }]);
+});
+
+test("a new document's contexts reach the client right after its frameNavigated, before any later event", async () => {
+    const { browser, client } = prepare({ answer: answerPage });
+    await client.call('Runtime.enable', {}, 's-a');
+    client.messages.length = 0;
+
+    browser.emit({ method: 'Page.frameNavigated', params: { frame: { id: 'f-main' } }, sessionId: 's-a' });
+    browser.emit({ method: 'Page.lifecycleEvent', params: { frameId: 'f-main', name: 'init' }, sessionId: 's-a' });
+
+    expect(client.messages.map(message => message['method'])).toEqual([
+        'Runtime.executionContextDestroyed',
+        'Page.frameNavigated',
+        'Runtime.executionContextCreated',
+        'Page.lifecycleEvent',
+    ]);
+});
+
+test("contexts are announced only after the reply to the session's earlier commands, however the browser answers", async () => {
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
+    let trees = 0;
+    const { client } = prepare({
+        answer: async command => {
+            // The client's own Page.getFrameTree is answered last, after any the proxy sends for its Runtime.enable.
+            if (command.method === 'Page.getFrameTree' && trees++ === 0) {
+                await held;
+            }
+            return answerPage(command);
+        },
+    });
+
+    const tree = client.call('Page.getFrameTree', {}, 's-a');
+    const enabled = client.call('Runtime.enable', {}, 's-a');
+    await Bun.sleep(10);
+    expect(client.messages).toEqual([]);
+    release();
+    await Promise.all([tree, enabled]);
+
+    expect(client.messages.map(message => message['id'] ?? message['method'])).toEqual([
+        1,
+        'Runtime.executionContextCreated',
+        2,
+    ]);
+});
+
+test("lifecycle events are enabled once the client has the session's frame tree, and its events follow the reply", async () => {
+    const tree = Promise.withResolvers<void>();
+    const enabling = Promise.withResolvers<void>();
+    const { browser, client } = prepare({
+        answer: async command => {
+            if (command.method === 'Page.getFrameTree') {
+                await tree.promise;
+            }
+            if (command.method === 'Page.setLifecycleEventsEnabled') {
+                // Chrome replays the document's lifecycle before it replies.
+                browser.emit({
+                    method: 'Page.lifecycleEvent',
+                    params: { frameId: 'f-main', name: 'load' },
+                    sessionId: 's-a',
+                });
+                await enabling.promise;
+            }
+            return answerPage(command);
+        },
+    });
+
+    const replies = Promise.all([
+        client.call('Page.getFrameTree', {}, 's-a'),
+        client.call('Page.setLifecycleEventsEnabled', { enabled: true }, 's-a'),
+    ]);
+    await Bun.sleep(10);
+    expect(browser.sent.map(command => command.method)).toEqual(['Page.getFrameTree']);
+    tree.resolve();
+    await Bun.sleep(10);
+    expect(client.messages.map(message => message['id'] ?? message['method'])).toEqual([1]);
+    enabling.resolve();
+    await replies;
+
+    expect(browser.sent.map(command => command.method)).toEqual([
+        'Page.getFrameTree',
+        'Page.setLifecycleEventsEnabled',
+    ]);
+    expect(client.messages.map(message => message['id'] ?? message['method'])).toEqual([1, 2, 'Page.lifecycleEvent']);
+});
+
 /** What `prepare` builds a client with. */
 interface PrepareOptions {
     policy?: CdpPolicy<string>;
     pace?: Pick<SitePaceRun, 'gate'>;
     /** The registry to fill; a new one by default. */
     registry?: SessionRegistry;
+    /** The fake browser's answer to a command; `undefined` leaves it to the default answers. */
+    answer?: (command: SentCommand) => Promise<unknown> | undefined;
+    /** A client of no group, which sees every page but the proxy's own; of `group-a` by default. */
+    ungrouped?: boolean;
 }
 
 /**
  * Client `c-a` of `group-a` owns page `t-a` and session `s-a`; `c-b` of `group-b` owns `t-b`/`s-b`; the proxy has its
- * own page `t-proxy` and a session `s-proxy` on `t-a`. The fake browser answers `createTarget` with `t-new` and
- * `attachToTarget` with `s-new`, anything else with `{}`.
+ * own page `t-proxy` and a session `s-proxy` on `t-a`. The fake browser answers `createTarget` with `t-new`, announced
+ * by `Target.targetCreated` first, and `attachToTarget`, a macrotask later, with `s-new`, then `s-new-2` and so on,
+ * announced by `Target.attachedToTarget` first; anything else with `{}`, unless `answer` answers it. `browser.emit` sends an event,
+ * which the registry sees first.
  */
 function prepare(options: PrepareOptions) {
     const registry = options.registry ?? createSessionRegistry();
@@ -261,15 +536,39 @@ function prepare(options: PrepareOptions) {
     registry.claimSession({ type: 'proxy' }, 's-proxy', 't-a');
 
     const sent: SentCommand[] = [];
+    const listeners: ((event: CdpEvent) => void)[] = [];
+    let attaches = 0;
     const browser = {
         sent,
+        emit(event: CdpEvent) {
+            registry.observe(event);
+            for (const listener of listeners) {
+                listener(event);
+            }
+        },
         send(method: string, params?: object, sessionId?: string) {
-            sent.push(sessionId == null ? { method, params } : { method, params, sessionId });
+            const command = sessionId == null ? { method, params } : { method, params, sessionId };
+            sent.push(command);
+            const answered = options.answer?.(command);
+            if (answered != null) {
+                return answered;
+            }
             switch (method) {
                 case 'Target.createTarget':
+                    browser.emit({ method: 'Target.targetCreated', params: { targetInfo: pageInfo('t-new') } });
                     return Promise.resolve({ targetId: 't-new' });
-                case 'Target.attachToTarget':
-                    return Promise.resolve({ sessionId: 's-new' });
+                case 'Target.attachToTarget': {
+                    const attached = ++attaches === 1 ? 's-new' : `s-new-${attaches}`;
+                    const targetId = isPlainObject(params) ? String(params['targetId']) : '';
+                    // A round trip later, as on a pipe.
+                    return Bun.sleep(0).then(() => {
+                        browser.emit({
+                            method: 'Target.attachedToTarget',
+                            params: { sessionId: attached, targetInfo: pageInfo(targetId), waitingForDebugger: false },
+                        });
+                        return { sessionId: attached };
+                    });
+                }
                 default:
                     return Promise.resolve({});
             }
@@ -279,7 +578,7 @@ function prepare(options: PrepareOptions) {
     const replies = new Map<number, (message: Record<string, unknown>) => void>();
     const client = connectClient({
         clientId: 'c-a',
-        group: 'group-a',
+        group: options.ungrouped ? undefined : 'group-a',
         data: 'data-a',
         socket: {
             send(text) {
@@ -298,7 +597,10 @@ function prepare(options: PrepareOptions) {
         send: (method, params, sessionId) => browser.send(method, params, sessionId),
         registry,
         brand: { whenBranded: () => Promise.resolve() },
-        onEvent: () => () => {},
+        onEvent: listener => {
+            listeners.push(listener);
+            return () => {};
+        },
         policy: options.policy,
         pace: options.pace,
         logger: createTestLogger('test').logger,
@@ -324,6 +626,37 @@ function prepare(options: PrepareOptions) {
     };
 }
 
+/**
+ * A page whose main frame is `f-main` and whose worlds get Chrome's context ids from 1000 up; `s-worker` is a worker,
+ * which has no Page domain.
+ */
+function answerPage(command: SentCommand) {
+    switch (command.method) {
+        case 'Page.getFrameTree':
+            return command.sessionId === 's-worker'
+                ? Promise.reject(new CdpError({ code: -32_601, message: "'Page.getFrameTree' wasn't found" }))
+                : Promise.resolve({ frameTree: { frame: { id: 'f-main' } } });
+        case 'Page.createIsolatedWorld':
+            return Promise.resolve({
+                executionContextId:
+                    isPlainObject(command.params) && command.params['worldName'] === 'utility-pw' ? 1001 : 1000,
+            });
+        default:
+            return undefined;
+    }
+}
+
+/** The ids of the contexts a client was told were created, in order. */
+function createdIds(messages: Record<string, unknown>[]) {
+    return messages
+        .filter(message => message['method'] === 'Runtime.executionContextCreated')
+        .map(message =>
+            isPlainObject(message['params']) && isPlainObject(message['params']['context'])
+                ? message['params']['context']['id']
+                : undefined,
+        );
+}
+
 /** A clock whose time moves only by `advance()`, which runs every timer due by then. */
 function createManualClock() {
     let now = 0;
@@ -342,4 +675,20 @@ function createManualClock() {
         },
     };
     return clock;
+}
+
+/** The target info of a page with no opener. */
+function pageInfo(targetId: string) {
+    return { targetId, type: 'page' };
+}
+
+/** The targets a client was told it is attached to, in order. */
+function attachedTargets(messages: Record<string, unknown>[]) {
+    return messages
+        .filter(message => message['method'] === 'Target.attachedToTarget' && message['sessionId'] == null)
+        .map(message =>
+            isPlainObject(message['params']) && isPlainObject(message['params']['targetInfo'])
+                ? message['params']['targetInfo']['targetId']
+                : undefined,
+        );
 }
