@@ -14,13 +14,24 @@ test('a journey through the mini shop passes, skipping an absent cookie banner',
     await runJourney(createMiniShopJourney(selftestOrigin), page, step);
 });
 
-test('a journey that meets a HUMAN challenge fails as challenged', async ({ page, step, selftestOrigin }) => {
+test('a journey that meets a HUMAN challenge fails as challenged, its cookies in the timeline', async ({
+    page,
+    step,
+    timeline,
+    selftestOrigin,
+}) => {
     const failure = await runJourney(createChallengeJourney(selftestOrigin), page, step).catch(
         (error: unknown) => error,
     );
 
     expect(failure).toBeInstanceOf(JourneyFailure);
-    expect(failure).toMatchObject({ outcome: { class: 'challenged', vendor: 'HUMAN', step: 'search' } });
+    expect(failure).toMatchObject({
+        outcome: { class: 'challenged', vendor: 'HUMAN', step: 'search', evidence: 'HUMAN #px-captcha' },
+    });
+    expect(timeline.entries.map(entry => entry.step)).toEqual(['start', 'open the site', 'search']);
+    const cookies = timeline.entries.at(-1)?.cookies;
+    expect(cookies?.abck).toBe('invalid');
+    expect(cookies?.names.toSorted()).toEqual(['_abck', '_px3']);
 });
 
 test('the shop probe reads the visit from a local Beanwright, which scores nothing offline', async ({

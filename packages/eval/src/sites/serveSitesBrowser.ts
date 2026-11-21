@@ -14,6 +14,9 @@ export const SITES_ENDPOINT_VARIABLE = 'FLANEUR_SITES_ENDPOINT';
 /** The eval's own state folder, so a person's own flaneur profile is never touched. */
 export const SITES_STATE_FOLDER = path.join(os.homedir(), '.flaneur-eval');
 
+/** Where the sites runs are saved as `<startedAt>-sites.json`, beside the stealth eval's runs. */
+export const SITES_RESULTS_FOLDER = path.join(SITES_STATE_FOLDER, 'results');
+
 /** How the run's flaneur is started. */
 export interface ServeSitesBrowserOptions {
     /** The Chrome profile; one browser at a time may open it. */

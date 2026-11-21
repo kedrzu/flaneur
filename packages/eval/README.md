@@ -48,6 +48,7 @@ Why it is a Playwright Test suite and not a probe of `bun run eval`:
 bun run eval:sites                                 # every journey 3 times in flaneur
 bun run eval:sites --repeat-each 1 --grep amazon   # one journey once
 bun run eval:sites --project headless              # add the plain headless Chromium as the control
+bun run eval:sites:history                         # pass rates of the last 5 runs, and the sites cooling
 bun run eval:sites:selftest                        # the suite's own check, on local pages, offline
 ```
 
@@ -61,9 +62,16 @@ bun run eval:sites:selftest                        # the suite's own check, on l
   pace refused the site after a challenge) or `broken` (anything else, usually a changed page). A `broken` journey
   needs fixing; a `challenged` one is the measurement.
 - **Results:** a table at the end of the run — attempts passed out of those executed (refused ones apart), the
-  classes, the vendors, the step a journey fails at most, and whether the control passes too, which makes the
-  journey tell nothing apart. It is saved as `~/.flaneur-eval/results/<time>-sites.json`; screenshots of failed
-  attempts are in `~/.flaneur-eval/sites`.
+  classes, the vendors, the step and the evidence a journey fails with most, and whether the control passes too,
+  which makes the journey tell nothing apart. It is saved as `~/.flaneur-eval/results/<time>-sites.json` with every
+  attempt: its class, evidence, final URL, attachments and step timeline. The timeline has, before the first step and
+  after each, the page's URL and the anti-bot cookies held for it: names only, never values, plus Akamai's `_abck`
+  state (`valid` when its second `~` field is `0`, a community reading Akamai does not document).
+- **Artifacts:** each run writes to its own `~/.flaneur-eval/sites/<time>/`, so older runs' screenshots stay; a failed
+  attempt gets its screenshot and its HTML (up to 300 KB).
+- **Cooldown:** a site that challenged or refused flaneur cools for an hour in `~/.flaneur-eval/sites/cooldown.json`,
+  and later runs skip its journey in both projects, the skip naming the minutes left.
+  `FLANEUR_SITES_IGNORE_COOLDOWN=1` runs it anyway; deleting the file ends every cooldown.
 - **Repeats:** `--repeat-each` runs the journeys in turns (all once, then all again), with one flaneur and one pace
   for the whole run. After a challenge flaneur pauses the site for 5 minutes and stops it for an hour after a second,
   so later attempts on it are `refused`.

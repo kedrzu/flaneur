@@ -5,6 +5,7 @@ import { findChallenge, parsePageFacts, READ_PAGE_FACTS } from '../classifyChall
 import type { ChallengeVendor, PageFacts } from '../classifyChallenge.js';
 import { classifyFailure } from './classifyFailure.js';
 import type { FailureClassification } from './classifyFailure.js';
+import type { JourneyTimeline } from './createJourneyTimeline.js';
 
 /** A human-like, non-destructive walk through a protected site: search, a product, a guest cart. */
 export interface Journey {
@@ -40,6 +41,8 @@ export interface CreateJourneyStepParams {
     testInfo: TestInfo;
     /** The page's action timeout outside optional steps; `0` is none. */
     actionTimeout: number;
+    /** Gets an entry before the first step and after every step, failed ones too. */
+    timeline: JourneyTimeline;
 }
 
 /** The annotation type a failed test's `JourneyOutcome` is written under, as JSON. */
@@ -85,11 +88,21 @@ export async function runJourney(journey: Journey, page: Page, step: JourneyStep
 /**
  * Creates the `step` a journey runs its actions in, for one test. Before its action a step fails `challenged` when a
  * vendor's challenge is already on the page; when the action throws, the failure is classified from the error and the
- * page. The first failing step writes the test's `outcome` annotation.
+ * page. The first failing step writes the test's `outcome` annotation. Every step adds to the timeline.
  * @__NO_SIDE_EFFECTS__
  */
-export function createJourneyStep({ page, testInfo, actionTimeout }: CreateJourneyStepParams): JourneyStep {
-    return (name, action, options = {}) => test.step(name, () => runStep(name, action, options));
+export function createJourneyStep({ page, testInfo, actionTimeout, timeline }: CreateJourneyStepParams): JourneyStep {
+    return (name, action, options = {}) =>
+        test.step(name, async () => {
+            if (timeline.entries.length === 0) {
+                await timeline.record('start');
+            }
+            try {
+                await runStep(name, action, options);
+            } finally {
+                await timeline.record(name);
+            }
+        });
 
     async function runStep(name: string, action: () => Promise<void>, options: JourneyStepOptions) {
         failOnChallenge(name, await readPageFacts(page));

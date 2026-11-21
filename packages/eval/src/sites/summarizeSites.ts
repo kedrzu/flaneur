@@ -1,5 +1,13 @@
+import type { TimelineEntry } from './createJourneyTimeline.js';
+
 /** The annotation type a journey's anti-bot vendor is recorded under. */
 export const VENDOR_ANNOTATION = 'vendor';
+
+/** The annotation type a journey's site (the host it starts on) is recorded under; its cooldown is kept per site. */
+export const SITE_ANNOTATION = 'site';
+
+/** The annotation type the URL a test's page ended on is recorded under. */
+export const FINAL_URL_ANNOTATION = 'finalUrl';
 
 /** The annotation type the shop visit's mean reCAPTCHA v3 score is recorded under, as a number in a string. */
 export const SHOP_SCORE_ANNOTATION = 'shopScore';
@@ -7,24 +15,42 @@ export const SHOP_SCORE_ANNOTATION = 'shopScore';
 /** The project the others are compared with: a plain headless Chromium. */
 const CONTROL_PROJECT = 'headless';
 
-/** How a journey attempt failed: its `outcome` annotation, as far as the summary needs it. */
+/** How a journey attempt failed: its `outcome` annotation. */
 export interface AttemptOutcome {
     class: 'challenged' | 'refused' | 'broken';
+    /** The vendor whose challenge was on the page. */
     vendor?: string;
     step: string;
+    evidence: string;
 }
 
-/** One finished attempt of a journey in one project, as the reporter read it from Playwright. */
+/** How an attempt ended: passed, failed by class, or skipped (no attempt at all). */
+export type AttemptStatus = 'passed' | 'challenged' | 'refused' | 'broken' | 'skipped';
+
+/** A file Playwright saved for an attempt: its screenshot or HTML. */
+export interface AttemptAttachment {
+    name: string;
+    path: string;
+}
+
+/** One finished attempt of a journey in one project, as the reporter read it from Playwright; saved as it is. */
 export interface AttemptRecord {
     project: string;
     journey: string;
-    /** Ran to the end: not skipped. */
-    executed: boolean;
-    /** Ended as the test expected. */
-    passed: boolean;
+    /** Which of the `--repeat-each` repeats it was, from 0. */
+    repeatEachIndex: number;
+    status: AttemptStatus;
+    /** Why it failed; a passed attempt may carry one too (a test that expected the failure), which counts for nothing. */
     outcome?: AttemptOutcome;
     /** The journey's protection vendor. */
     vendor?: string;
+    /** The journey's site, the host it starts on. */
+    site?: string;
+    /** Where the page ended. */
+    url?: string;
+    durationMs: number;
+    attachments: AttemptAttachment[];
+    timeline?: TimelineEntry[];
     shopScore?: number;
 }
 
@@ -46,6 +72,8 @@ export interface SiteRow {
     challengeVendors: Record<string, number>;
     /** The step most failed attempts failed in. */
     failingStep?: string;
+    /** The evidence most failed attempts gave. */
+    failingEvidence?: string;
     /** Mean of the attempts' `shopScore`, when any has one. */
     meanShopScore?: number;
     /** The `headless` project ran this journey in this run and passed every attempt. */
@@ -100,24 +128,28 @@ export function formatSiteRows(rows: readonly SiteRow[]): string {
             if (row.controlPasses) {
                 parts.push('control passes too');
             }
-            return parts.join('  ').trimEnd();
+            const line = parts.join('  ').trimEnd();
+            return row.failingEvidence == null ? line : `${line}\n    ${row.failingEvidence}`;
         })
         .join('\n');
 }
 
 function summarizeGroup(group: readonly AttemptRecord[], controlPassed: boolean): SiteRow {
     const [first] = group;
-    const attempts = group.filter(record => record.executed);
-    const failures = attempts.filter(record => !record.passed);
-    const refused = failures.filter(record => record.outcome?.class === 'refused');
-    const counted = failures.filter(record => record.outcome?.class !== 'refused');
+    const attempts = group.filter(record => record.status !== 'skipped');
+    const failures = attempts.filter(record => record.status !== 'passed');
+    const count = (status: AttemptStatus) => attempts.filter(record => record.status === status).length;
 
     const challengeVendors: Record<string, number> = {};
-    for (const { outcome } of counted) {
-        if (outcome?.class === 'challenged' && outcome.vendor != null) {
+    for (const { status, outcome } of failures) {
+        if (status === 'challenged' && outcome?.vendor != null) {
             challengeVendors[outcome.vendor] = (challengeVendors[outcome.vendor] ?? 0) + 1;
         }
     }
+    const failingStep = mostFrequent(failures.flatMap(({ outcome }) => (outcome == null ? [] : [outcome.step])));
+    const failingEvidence = mostFrequent(
+        failures.flatMap(({ outcome }) => (outcome == null ? [] : [outcome.evidence])),
+    );
 
     const scores = group.flatMap(record => (record.shopScore == null ? [] : [record.shopScore]));
     const protectionVendor = group.find(record => record.vendor != null)?.vendor;
@@ -126,13 +158,14 @@ function summarizeGroup(group: readonly AttemptRecord[], controlPassed: boolean)
         project: first?.project ?? '',
         journey: first?.journey ?? '',
         ...(protectionVendor == null ? {} : { vendor: protectionVendor }),
-        passed: attempts.length - failures.length,
-        executed: attempts.length - refused.length,
-        refused: refused.length,
-        challenged: counted.filter(record => record.outcome?.class === 'challenged').length,
-        broken: counted.filter(record => record.outcome?.class === 'broken').length,
+        passed: count('passed'),
+        executed: attempts.length - count('refused'),
+        refused: count('refused'),
+        challenged: count('challenged'),
+        broken: count('broken'),
         challengeVendors,
-        ...mostFrequentStep(failures),
+        ...(failingStep == null ? {} : { failingStep }),
+        ...(failingEvidence == null ? {} : { failingEvidence }),
         ...(scores.length === 0
             ? {}
             : { meanShopScore: scores.reduce((sum, score) => sum + score, 0) / scores.length }),
@@ -143,25 +176,24 @@ function summarizeGroup(group: readonly AttemptRecord[], controlPassed: boolean)
 /** The control passed: it ran the journey and every attempt it executed passed. */
 function controlPasses(records: readonly AttemptRecord[], journey: string | undefined): boolean {
     const control = records.filter(
-        record => record.project === CONTROL_PROJECT && record.journey === journey && record.executed,
+        record => record.project === CONTROL_PROJECT && record.journey === journey && record.status !== 'skipped',
     );
-    return control.length > 0 && control.every(record => record.passed);
+    return control.length > 0 && control.every(record => record.status === 'passed');
 }
 
-function mostFrequentStep(failures: readonly AttemptRecord[]): { failingStep?: string } {
+/** The value given most often; the first seen of those tied. */
+function mostFrequent(values: readonly string[]): string | undefined {
     const counts = new Map<string, number>();
-    for (const { outcome } of failures) {
-        if (outcome != null) {
-            counts.set(outcome.step, (counts.get(outcome.step) ?? 0) + 1);
-        }
+    for (const value of values) {
+        counts.set(value, (counts.get(value) ?? 0) + 1);
     }
     let best: string | undefined;
     let bestCount = 0;
-    for (const [step, count] of counts) {
+    for (const [value, count] of counts) {
         if (count > bestCount) {
-            best = step;
+            best = value;
             bestCount = count;
         }
     }
-    return best == null ? {} : { failingStep: best };
+    return best;
 }

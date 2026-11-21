@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { classifyPanelPage, filterVendorCookies } from './panel.js';
+import { classifyPanelPage } from './panel.js';
 import type { PageFacts } from './classifyChallenge.js';
 import type { PanelPageState } from './panel.js';
 
@@ -63,23 +63,6 @@ test("Kasada's ips.js counts only while the page is empty: it stays on the real 
 
     expect(classifyPanelPage(facts({ title: '', textLength: 0, scripts: [ips] })).state).toBe('challenged');
     expect(classifyPanelPage(facts({ title: 'Real Estate', textLength: 4000, scripts: [ips] })).state).toBe('through');
-});
-
-test('vendor cookies are kept by exact name or prefix, each once', () => {
-    const names = [
-        '__cf_bm',
-        'utag_main',
-        '_px3',
-        '_pxhd',
-        'bm_sz',
-        'ak_bmsc',
-        'datadome',
-        '__cf_bm',
-        'KP_UIDz',
-        'abck',
-    ];
-
-    expect(filterVendorCookies(names)).toEqual(['__cf_bm', '_px3', '_pxhd', 'bm_sz', 'ak_bmsc', 'datadome', 'KP_UIDz']);
 });
 
 function facts(overrides: Partial<PageFacts>): PageFacts {

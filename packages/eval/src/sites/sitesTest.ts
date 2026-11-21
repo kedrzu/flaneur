@@ -2,15 +2,25 @@ import { chromium, test } from 'playwright/test';
 import type { BrowserContext, TestInfo } from 'playwright/test';
 
 import { assert } from '@nzyme/utils/assert.js';
+import { withTimeout } from '@nzyme/utils/withTimeout.js';
 
 import type { PageFacts } from '../classifyChallenge.js';
 import { classifyFailure } from './classifyFailure.js';
+import { createJourneyTimeline, TIMELINE_ANNOTATION } from './createJourneyTimeline.js';
+import type { JourneyTimeline } from './createJourneyTimeline.js';
 import { OUTCOME_ANNOTATION, createJourneyStep, readPageFacts, recordOutcome } from './defineJourney.js';
 import type { JourneyStep } from './defineJourney.js';
 import { SITES_ENDPOINT_VARIABLE } from './serveSitesBrowser.js';
+import { FINAL_URL_ANNOTATION } from './summarizeSites.js';
 
 /** How long the screenshot of a failed test's page may take; a hung page must not hold the teardown. */
 const SCREENSHOT_TIMEOUT_MS = 10_000;
+
+/** How long reading a failed test's HTML may take, for the same reason. */
+const HTML_TIMEOUT_MS = 10_000;
+
+/** The most of a failed test's HTML kept: enough for the markup of a challenge or block page. */
+const MAX_HTML_LENGTH = 300_000;
 
 /** The browser a project runs the journeys in: flaneur served by the global setup, or a plain headless Chromium as the control. */
 export type SitesRunner = 'flaneur' | 'headless';
@@ -19,6 +29,8 @@ export type SitesRunner = 'flaneur' | 'headless';
 export interface SitesTestFixtures {
     /** The step to run a journey's actions in; see `createJourneyStep`. */
     step: JourneyStep;
+    /** The journey's step timeline, written to the test as its `timeline` annotation. */
+    timeline: JourneyTimeline;
     /** What the page showed when the test failed, kept by `page` for the classification done after it closes. */
     failedPage: FailedPage;
 }
@@ -37,8 +49,9 @@ export interface FailedPage {
 }
 
 /**
- * Playwright's `test` for the sites eval. `page` is a new tab in the runner's browser, screenshotted when the test
- * fails; every failed test ends with exactly one `outcome` annotation, also after a timeout or an error outside a step.
+ * Playwright's `test` for the sites eval. `page` is a new tab in the runner's browser; its final URL is the test's
+ * `finalUrl` annotation, and a failed test gets its screenshot and HTML attached. Every failed test ends with exactly
+ * one `outcome` annotation, also after a timeout or an error outside a step.
  */
 export const sitesTest = test.extend<SitesTestFixtures, SitesWorkerFixtures>({
     runner: ['flaneur', { option: true, scope: 'worker' }],
@@ -94,6 +107,7 @@ export const sitesTest = test.extend<SitesTestFixtures, SitesWorkerFixtures>({
         page.setDefaultTimeout(actionTimeout || 0);
         page.setDefaultNavigationTimeout(navigationTimeout || 0);
         await use(page);
+        testInfo.annotations.push({ type: FINAL_URL_ANNOTATION, description: page.url() });
         if (hasFailed(testInfo)) {
             // Playwright's own screenshot on failure only hooks contexts it creates for the test.
             try {
@@ -104,13 +118,27 @@ export const sitesTest = test.extend<SitesTestFixtures, SitesWorkerFixtures>({
             } catch {
                 // A closed or crashed page has nothing to show; the failure is reported all the same.
             }
+            try {
+                const html = await withTimeout({ operation: page.content(), timeoutMs: HTML_TIMEOUT_MS });
+                await testInfo.attach('html', { body: html.slice(0, MAX_HTML_LENGTH), contentType: 'text/html' });
+            } catch {
+                // As the screenshot: a page that cannot give its HTML (navigating, closed, hung) leaves none.
+            }
             failedPage.facts = await readPageFacts(page);
         }
         await page.close();
     },
 
-    step: async ({ page, actionTimeout }, use, testInfo) => {
-        await use(createJourneyStep({ page, testInfo, actionTimeout: actionTimeout || 0 }));
+    timeline: async ({ page }, use, testInfo) => {
+        const timeline = createJourneyTimeline(page);
+        await use(timeline);
+        if (timeline.entries.length > 0) {
+            testInfo.annotations.push({ type: TIMELINE_ANNOTATION, description: JSON.stringify(timeline.entries) });
+        }
+    },
+
+    step: async ({ page, actionTimeout, timeline }, use, testInfo) => {
+        await use(createJourneyStep({ page, testInfo, actionTimeout: actionTimeout || 0, timeline }));
     },
 });
 
