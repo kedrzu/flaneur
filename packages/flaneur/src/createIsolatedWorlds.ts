@@ -76,41 +76,187 @@ const GONE_ERRORS = ['Cannot find context with specified id', 'No frame for give
 /** The CDP error code of a method the target does not have: a worker has no Page domain. */
 const METHOD_NOT_FOUND = -32_601;
 
+/** The symbol (`Symbol.for`) under which a world's global holds its marks' access for the proxy (`WORLD_PRELUDE`). */
+export const WORLD_MARKS_KEY = 'flaneur.worldMarks';
+
 /**
- * Run in every isolated world before any code of a client: Playwright's injected script dispatches DOM events of its
- * own (`__playwright_mark_target__` on an action's target, `__playwright_reset_targets__` on the document,
- * `__playwright_global_listeners_check__` on the window), and an event dispatched from an isolated world travels the
- * shared DOM to the page's own listeners, which anti-bot scripts use to tell Playwright apart. The world's own
- * `EventTarget.prototype.dispatchEvent` is wrapped so an event whose type starts with one of Playwright's internal
- * prefixes (`__playwright`, `__pw`) is not dispatched and reports `true`, as a non-cancelled event does; every other
- * event, `page.dispatchEvent` included, is a client's deliberate request and goes out unchanged. The wrapper lives in
- * the world's own prototypes, which the page never sees. Running it again changes nothing.
+ * Run in every isolated world before any code of a client, so nothing the client's code does in the world reaches a page
+ * script by the shared DOM:
+ *
+ * - Playwright's injected script dispatches DOM events of its own (`__playwright_mark_target__` on an action's target,
+ *   `__playwright_reset_targets__` on the document, `__playwright_global_listeners_check__` on the window), and an
+ *   event dispatched from an isolated world travels to the page's own listeners, which anti-bot scripts use to tell
+ *   Playwright apart. The world's `EventTarget.prototype.dispatchEvent` drops an event whose type starts with one of
+ *   Playwright's internal prefixes (`__playwright`, `__pw`) and reports `true`, as a non-cancelled event does; every
+ *   other event, `page.dispatchEvent` included, is a client's deliberate request and goes out unchanged.
+ * - agent-browser marks the elements it means to find again with data attributes (`data-__ab-ci` on every snapshot,
+ *   `data-agent-browser-located` for `find`), which a page's `MutationObserver` sees come and go, and its click
+ *   handler sees on the target. A `data-*` attribute the client sets in the world stays in the world: the world's
+ *   `setAttribute`, `removeAttribute`, `getAttribute` and `hasAttribute` keep it per element, and its
+ *   `querySelector` and `querySelectorAll` match it, for a selector of one compound selector (`[data-x]`,
+ *   `button[data-x='1']`), among the page's own matches; a selector with a combinator matches the page's DOM only.
+ *   The proxy answers `DOM.querySelector`, `DOM.querySelectorAll` and `DOM.describeNode` from the same marks
+ *   (`WORLD_MARKS_KEY`). A data attribute the page set is read and removed in the DOM as before.
+ *
+ * The wrappers live in the world's own prototypes, which the page never sees. Running it again changes nothing.
  */
-export const WORLD_PRELUDE = `(() => {
-    const proto = EventTarget.prototype;
-    const dispatch = proto.dispatchEvent;
+export const WORLD_PRELUDE = String.raw`(() => {
     const marker = Symbol.for('flaneur.worldPrelude');
-    if (dispatch[marker] === true) {
+    if (EventTarget.prototype.dispatchEvent[marker] === true) {
         return;
     }
+    const apply = Reflect.apply;
+    const replace = (target, name, value) => {
+        Object.defineProperty(target, name, { ...Object.getOwnPropertyDescriptor(target, name), value });
+        return value;
+    };
+
+    const dispatch = EventTarget.prototype.dispatchEvent;
     const readType = Object.getOwnPropertyDescriptor(Event.prototype, 'type').get;
     const startsWith = String.prototype.startsWith;
-    const wrapped = {
+    const wrapped = replace(EventTarget.prototype, 'dispatchEvent', {
         dispatchEvent(event) {
             let type;
             try {
-                type = Reflect.apply(readType, event, []);
+                type = apply(readType, event, []);
             } catch {
-                return Reflect.apply(dispatch, this, arguments);
+                return apply(dispatch, this, arguments);
             }
-            if (Reflect.apply(startsWith, type, ['__playwright']) || Reflect.apply(startsWith, type, ['__pw'])) {
+            if (apply(startsWith, type, ['__playwright']) || apply(startsWith, type, ['__pw'])) {
                 return true;
             }
-            return Reflect.apply(dispatch, this, arguments);
+            return apply(dispatch, this, arguments);
         },
-    }.dispatchEvent;
+    }.dispatchEvent);
     Object.defineProperty(wrapped, marker, { value: true });
-    Object.defineProperty(proto, 'dispatchEvent', { ...Object.getOwnPropertyDescriptor(proto, 'dispatchEvent'), value: wrapped });
+
+    /** The world's own data attributes: element to a map of name to value. */
+    const marks = new Map();
+    const element = Element.prototype;
+    const native = {
+        setAttribute: element.setAttribute,
+        removeAttribute: element.removeAttribute,
+        getAttribute: element.getAttribute,
+        hasAttribute: element.hasAttribute,
+        matches: element.matches,
+        contains: Node.prototype.contains,
+        compare: Node.prototype.compareDocumentPosition,
+    };
+    const toKey = name => String(name).toLowerCase();
+    const isData = key => apply(startsWith, key, ['data-']);
+    replace(element, 'setAttribute', {
+        setAttribute(name, value) {
+            const key = toKey(name);
+            if (arguments.length < 2 || !isData(key)) {
+                return apply(native.setAttribute, this, arguments);
+            }
+            let own = marks.get(this);
+            if (own == null) {
+                own = new Map();
+                marks.set(this, own);
+            }
+            own.set(key, String(value));
+        },
+    }.setAttribute);
+    replace(element, 'removeAttribute', {
+        removeAttribute(name) {
+            const own = marks.get(this);
+            if (own != null && own.delete(toKey(name))) {
+                if (own.size === 0) {
+                    marks.delete(this);
+                }
+                return;
+            }
+            return apply(native.removeAttribute, this, arguments);
+        },
+    }.removeAttribute);
+    replace(element, 'getAttribute', {
+        getAttribute(name) {
+            const value = marks.get(this)?.get(toKey(name));
+            return value === undefined ? apply(native.getAttribute, this, arguments) : value;
+        },
+    }.getAttribute);
+    replace(element, 'hasAttribute', {
+        hasAttribute(name) {
+            return marks.get(this)?.has(toKey(name)) === true || apply(native.hasAttribute, this, arguments);
+        },
+    }.hasAttribute);
+    /** Each node type's own querySelectorAll. */
+    const nativeQueryAll = new Map();
+    for (const target of [Document.prototype, DocumentFragment.prototype, element]) {
+        const queryAll = target.querySelectorAll;
+        const query = target.querySelector;
+        nativeQueryAll.set(target, queryAll);
+        replace(target, 'querySelectorAll', {
+            querySelectorAll(selector) {
+                return queryMarked(this, selector) ?? apply(queryAll, this, arguments);
+            },
+        }.querySelectorAll);
+        replace(target, 'querySelector', {
+            querySelector(selector) {
+                const found = queryMarked(this, selector);
+                return found == null ? apply(query, this, arguments) : (found[0] ?? null);
+            },
+        }.querySelector);
+    }
+    Object.defineProperty(globalThis, Symbol.for('${WORLD_MARKS_KEY}'), {
+        value: { query: queryMarked, read: node => [...(marks.get(node) ?? [])].flat() },
+    });
+
+    /**
+     * The elements under root matching selector, the world's marks counted, in document order; null when the selector
+     * names no data attribute the world holds, or is not one compound selector.
+     */
+    function queryMarked(root, selector) {
+        let queryAll;
+        for (const [target, own] of nativeQueryAll) {
+            if (target.isPrototypeOf(root)) {
+                queryAll = own;
+                break;
+            }
+        }
+        if (marks.size === 0 || queryAll === undefined) {
+            return null;
+        }
+        const text = String(selector);
+        const conditions = [];
+        const rest = text.replace(/\[\s*(data-[\w-]+)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s\]"']+))\s*)?\]/gi, (all, name, double, single, bare) => {
+            conditions.push({ key: toKey(name), value: double ?? single ?? bare });
+            return '';
+        }).trim();
+        if (conditions.length === 0 || /[\s,>+~]/.test(rest.replace(/\[[^\]]*\]|"[^"]*"|'[^']*'|\([^)]*\)/g, ''))) {
+            return null;
+        }
+        let held = false;
+        for (const own of marks.values()) {
+            if (conditions.some(condition => own.has(condition.key))) {
+                held = true;
+                break;
+            }
+        }
+        if (!held) {
+            return null;
+        }
+        const subject = rest === '' ? '*' : rest;
+        const found = new Set();
+        for (const [node, own] of marks) {
+            if (
+                node !== root &&
+                apply(native.contains, root, [node]) &&
+                conditions.every(condition => {
+                    const value = own.has(condition.key) ? own.get(condition.key) : apply(native.getAttribute, node, [condition.key]);
+                    return value != null && (condition.value === undefined || value === condition.value);
+                }) &&
+                apply(native.matches, node, [subject])
+            ) {
+                found.add(node);
+            }
+        }
+        for (const node of apply(queryAll, root, [text])) {
+            found.add(node);
+        }
+        return [...found].sort((a, b) => (apply(native.compare, a, [b]) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    }
 })()`;
 
 /** Run on a node resolved in a frame's world: whether the node belongs to that frame's document. */

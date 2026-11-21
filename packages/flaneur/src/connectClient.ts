@@ -11,6 +11,7 @@ import { createClientAutoAttach } from './createClientAutoAttach.js';
 import { createExecutionContexts } from './createExecutionContexts.js';
 import type { HumanInputRun } from './createHumanInput.js';
 import { createIsolatedWorlds } from './createIsolatedWorlds.js';
+import { createWorldMarks } from './createWorldMarks.js';
 import type { SessionOriginator, SessionRegistry } from './createSessionRegistry.js';
 import type { SitePaceRun } from './createSitePace.js';
 import { readTargetInfo } from './readTargetInfo.js';
@@ -106,6 +107,7 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
     const { clientId, group, data, socket, send, registry, brand, policy, pace, input, logger } = params;
     const originator: SessionOriginator = { type: 'client', clientId };
     const worlds = createIsolatedWorlds(send);
+    const marks = createWorldMarks(send, worlds);
     const contexts = createExecutionContexts(send, sendEvent);
     const autoAttach = createClientAutoAttach({
         listPages,
@@ -431,6 +433,12 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
                 return {};
             case 'Target.getTargets':
                 return filterTargets(await send(method, forwardParams));
+            case 'DOM.querySelector':
+            case 'DOM.querySelectorAll':
+                // Data attributes a client's code set stay in its world (`WORLD_PRELUDE`); its DOM queries see them.
+                return marks.query(method, forwardParams, sessionId);
+            case 'DOM.describeNode':
+                return marks.describeNode(forwardParams, sessionId);
             case 'Target.createTarget':
                 return createTarget(forwardParams);
             case 'Target.attachToTarget':
@@ -631,6 +639,7 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
         if (event.method === 'Target.detachedFromTarget' && typeof eventParams['sessionId'] === 'string') {
             contexts.forget(eventParams['sessionId']);
             worlds.forget(eventParams['sessionId']);
+            marks.forget(eventParams['sessionId']);
         }
         if (event.sessionId != null) {
             if (isOwnSession(event.sessionId)) {

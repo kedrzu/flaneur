@@ -325,6 +325,19 @@ the page's prototype stays native. Only those internal prefixes: an event a clie
 (`page.dispatchEvent`) reaches the page. A client's `Page.navigate` goes without its `referrer` and `referrerPolicy`,
 so it is consistently a typed one. Both are stealth rules no policy can lift.
 
+> **Checked 2026-11-21:** agent-browser v0.43.0 over flaneur, on a local page whose own script records what a sensor
+> sees: every `snapshot` sets `data-__ab-ci` on each element it finds clickable by its cursor or `onclick` and removes
+> it a few milliseconds later (`find_cursor_interactive_elements`, `cli/src/native/snapshot.rs`), and `find` (by text,
+> label, `first`…) sets `data-agent-browser-located="true"` on its target and keeps it through the whole action
+> (`handle_find`, `actions.rs`). A page's `MutationObserver` sees both, and its click handler sees the second on the
+> clicked element.
+
+**Data attributes (2026-11-21).** A `data-*` attribute a client's code sets in an isolated world stays in that world
+(`WORLD_PRELUDE`): the world's attribute methods and its `querySelector`/`querySelectorAll` see it, the page's DOM never
+holds it, and the proxy answers a client's `DOM.querySelector`, `DOM.querySelectorAll` and `DOM.describeNode` from the
+same marks (`packages/flaneur/src/createWorldMarks.ts`). A data attribute is the page's own state; a client changes it
+only to mark an element for itself. A stealth rule no policy can lift.
+
 **Consequences.** The agent loses agent-browser's `console`, `errors` and `expose`, and cannot read the page's JS
 globals (isolated worlds share the DOM, not globals). Playwright works through context events the proxy emulates
 (2026-11-21, [playwright-compatibility](../../decisions/playwright-compatibility.md)), within the same limits. Site
