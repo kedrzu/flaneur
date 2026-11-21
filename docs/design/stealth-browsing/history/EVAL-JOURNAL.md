@@ -6,6 +6,29 @@ day. Results files are in `~/.flaneur-eval/results` on the owner's machine; the 
 
 ## 2026-11-21
 
+### Late night: what agent-browser leaks to a page
+
+agent-browser 0.43.0 over flaneur (input layer on, pace at 0), each command family run on a fresh load of a local page
+whose own script records attribute mutations, untrusted events, focus with no pointer or key, input with no key, scroll
+with no wheel, and the event sequences of clicks and typing; a load with no client action as the baseline, which showed
+only the parser's own mutations.
+
+|Command|Trace on the page|Now|
+|-|-|-|
+|`snapshot`, `snapshot -i`|`data-__ab-ci` set and removed on every element clickable by cursor or `onclick`|fixed: data attributes stay in the world ([D8](../DECISIONS.md#d8))|
+|`find text/label/first … <action>`|`data-agent-browser-located="true"` on the target through the action|fixed, same rule|
+|`fill`|script `focus()` with no pointer; `select()`, `value = ''`, an untrusted `input` with no `inputType`|fixed: click, select-all chord, Backspace ([D4](../DECISIONS.md#d4))|
+|`type`, `focus`|script `focus()` with no pointer|fixed: a click|
+|`scroll`, `scrollintoview`, `click <css>` out of view|scroll with no wheel (`window.scrollBy`, `scrollIntoView()`)|fixed: wheeled|
+|`dblclick`|one press with `detail: 2`, no first click before it|open|
+
+No trace: `click @ref` (in or out of view), `click <css>` in view, `find role … click`, `press`, `keyboard type`, `hover`,
+`wait`, `get text`, `is visible`, `eval`; their click and key sequences match a person's (pointerover → pointerdown →
+mousedown → focus → pointerup → mouseup → click; keydown → keypress → beforeinput → input → keyup), all trusted,
+`getCoalescedEvents`/`getPredictedEvents` non-empty along the mouse paths. Not run, but read in agent-browser's source
+as script events: `select` and `check` (an untrusted `change`, and `el.click()` for some inputs), `clear`, `dispatch`.
+The test: `packages/flaneur/src/agentBrowser.test.ts`.
+
 ### Night: leboncoin's hidden CAPTCHA, and the panel twice
 
 **leboncoin.fr's CAPTCHA is in a hidden frame, not on the page.** Three loads of the home page in the CLI's installed
