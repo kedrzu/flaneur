@@ -162,8 +162,9 @@ language, and anything later. Vendors document client-side JS fingerprinting fir
 
 **flaneur enforces a human pace on every site and backs off when a page shows a CAPTCHA or block. Pace: at most one
 page load per site every 5 seconds, shared by every client of the browser. A block is recognised passively, from the
-page events the proxy already relays to the client: a main document answered 403 or 429, or a request to a known
-challenge URL. A block counts only once it lasts: when the same page reaches a 2xx or 3xx main document of the same
+page events the proxy already relays to the client: a page's main document answered 403 or 429, or a request to a
+known challenge URL that is the page's own — made by the main frame's document, or a document loaded into a frame the
+main frame holds (an overlay); one nested inside another subframe is that frame's, logged and not counted. A block counts only once it lasts: when the same page reaches a 2xx or 3xx main document of the same
 site within 20 seconds, it got past a self-solving interstitial and nothing is counted; until then the site's commands
 go at the normal pace. After a first block the site gets a 5-minute pause and a doubled interval for an hour; a second
 block within the hour refuses further actions on that site and tells the agent to ask the person. A wait of up to about 15
@@ -171,7 +172,8 @@ seconds is held silently; a longer one is refused with a message saying why and 
 instructions (the flaneur skill, or the host's own) say such a message is deliberate. A host hands one pace to every
 launch, so what it learned of blocks outlives a browser restart.** (2026-11-15, design agent proposal, owner agreed;
 adaptive from the first version is the owner's choice; values, recognition and the message chosen by the owner on
-2026-11-16 from the Allegro measurement; the grace added on 2026-11-21 from the site eval)
+2026-11-16 from the Allegro measurement; the grace and the page's own challenge added on 2026-11-21 from the site
+eval)
 
 **Why.** Blocks after N actions come from volume per session and IP, which no fingerprint fix changes. Enforced in the
 proxy, the agent cannot skip it; telling the agent keeps it from treating the wait as a broken browser. A generic pace
@@ -181,7 +183,9 @@ needs words. A navigation the agent writes in its own page script is counted whe
 held: the proxy gates the commands that load pages, and agent-browser's back and forward are such commands, but it
 does not read the agent's scripts. A self-solving interstitial is not a block: the browser gets through, so refusing
 the next clicks for 5 minutes would only stall the agent; a CAPTCHA the agent cannot solve still counts, as its page
-never reaches a real document in time. Commands go while a block is pending because the page may be solving itself.
+never reaches a real document in time. Commands go while a block is pending because the page may be solving itself. A challenge nested in another subframe (a hidden sign-in frame) is that frame's: the page around it works,
+so counting it would stall the agent on a usable site; only a page target shows a site, so an out-of-process frame's own
+document counts for none.
 
 > **Checked 2026-11-16:** Allegro from the owner's home connection, the agent's browser after the launch flag and the
 > isolated-world rule: 40 searches at 8-second intervals and 40 at 5-second intervals, each with results in about 1.3
@@ -199,6 +203,14 @@ never reaches a real document in time. Commands go while a block is pending beca
 > minutes. Playwright 1.65.1 retries an action whose `Input.dispatchMouseEvent` gets a CDP error until its timeout
 > without showing the error (`retryWithProgressAndBackoff` retries every `ProtocolError` except a closed session), so
 > a refusal of an input command reaches a Playwright client only as a timeout.
+
+> **Checked 2026-11-21:** leboncoin.fr's home on a fresh profile, the CLI's installed Chrome, no client actions, three
+> loads. Each first load is a 403 with DataDome's interstitial in a frame of the main frame, and the real page (200)
+> follows in 3 s. In two of three loads the page then opens a sign-in frame (`iframe#authFrame`, `display: none`,
+> 0×0, a child of the main frame) at `auth.leboncoin.fr/api/authorizer/v2/authorize`, answered 403; that frame loads
+> `ct.captcha-delivery.com/c.js` and its own child frame `geo.captcha-delivery.com/captcha/`. The page shows normally,
+> and 6 s later the page opens a new sign-in frame, which gets its 200. The pace counted that hidden CAPTCHA as a
+> block of leboncoin.fr, and counted each out-of-process challenge frame as a block of `geo.captcha-delivery.com`.
 
 **Rejected.**
 

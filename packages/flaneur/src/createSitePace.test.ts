@@ -173,6 +173,59 @@ test("a vendor's challenge request blocks the page's site once per document; ord
     }
 });
 
+test('a challenge frame the main frame holds blocks its site; one nested in another subframe does not, and is logged once per frame', async () => {
+    const { run, clock, emit, logs } = setup();
+    emit(pageUrl('T1', 'https://shop.pl/'));
+    emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 200));
+    // leboncoin.fr, 2026-11-21: the hidden sign-in frame is answered with DataDome's CAPTCHA, which loads its script
+    // there and its own frame inside it.
+    emit(frameAttached('S1', 'AUTH', 'T1'));
+    emit(request('S1', 'https://ct.captcha-delivery.com/c.js', { frameId: 'AUTH', type: 'Script' }));
+    emit(frameAttached('S1', 'CAPTCHA', 'AUTH'));
+    emit(request('S1', 'https://geo.captcha-delivery.com/captcha/?cid=1', { frameId: 'CAPTCHA', type: 'Document' }));
+    emit(request('S1', 'https://geo.captcha-delivery.com/captcha/?cid=2', { frameId: 'CAPTCHA', type: 'Document' }));
+    clock.advance(GRACE);
+    expect(await track(run.gate(navigate('https://shop.pl/'))).settled()).toEqual({ type: 'go' });
+    expect(
+        logs.filter(log => log.message === 'A challenge nested in a subframe does not count as a block'),
+    ).toHaveLength(2);
+
+    // DataDome's overlay over the page after a blocked XHR: its frame is the main frame's own child.
+    emit(documentResponse('S1', 'T1', 'L2', 'https://shop.pl/', 200));
+    emit(frameAttached('S1', 'OVERLAY', 'T1'));
+    emit(request('S1', 'https://geo.captcha-delivery.com/captcha/?cid=3', { frameId: 'OVERLAY', type: 'Document' }));
+    clock.advance(GRACE);
+    expect(await run.gate(navigate('https://shop.pl/'))).toMatchObject({ type: 'refuse' });
+});
+
+test('a 403 page with its challenge frame counts as one block', async () => {
+    const { run, clock, emit, logs } = setup();
+    emit(pageUrl('T1', 'https://shop.pl/'));
+    emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 403));
+    emit(frameAttached('S1', 'CHALLENGE', 'T1'));
+    emit(request('S1', 'https://geo.captcha-delivery.com/captcha/?cid=1', { frameId: 'CHALLENGE', type: 'Document' }));
+    clock.advance(GRACE);
+
+    expect(await run.gate(navigate('https://shop.pl/'))).toMatchObject({ type: 'refuse' });
+    expect(logs.filter(log => log.message === 'A site showed a block').map(log => log.data)).toEqual([
+        { site: 'shop.pl', reason: 'status 403', recentBlocks: 1 },
+    ]);
+});
+
+test("an out-of-process iframe's own document and challenge block no site", async () => {
+    const { run, clock, emit, logs } = setup();
+    emit({
+        method: 'Target.targetInfoChanged',
+        params: { targetInfo: { targetId: 'T3', type: 'iframe', url: 'https://geo.captcha-delivery.com/captcha/' } },
+    });
+    emit(documentResponse('S3', 'T3', 'L1', 'https://geo.captcha-delivery.com/captcha/', 403));
+    emit(request('S3', 'https://geo.captcha-delivery.com/captcha/check', { frameId: 'T3', type: 'XHR' }));
+    clock.advance(GRACE);
+
+    expect(await track(run.gate(navigate('https://geo.captcha-delivery.com/'))).settled()).toEqual({ type: 'go' });
+    expect(logs.filter(log => log.message === 'A site showed a block')).toEqual([]);
+});
+
 test("loads of a subframe or on a session of the proxy don't count; one of an ungrouped client does", async () => {
     const { run, clock, emit } = setup();
     emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 403, 'FRAME'));
@@ -378,8 +431,18 @@ function documentResponse(
     };
 }
 
-function request(sessionId: string, url: string): CdpEvent {
-    return { method: 'Network.requestWillBeSent', sessionId, params: { requestId: url, request: { url } } };
+function request(sessionId: string, url: string, frame: RequestFrame = {}): CdpEvent {
+    return { method: 'Network.requestWillBeSent', sessionId, params: { requestId: url, ...frame, request: { url } } };
+}
+
+/** The frame a request is made in and its resource type, as `Network.requestWillBeSent` reports them. */
+interface RequestFrame {
+    frameId?: string;
+    type?: string;
+}
+
+function frameAttached(sessionId: string, frameId: string, parentFrameId: string): CdpEvent {
+    return { method: 'Page.frameAttached', sessionId, params: { frameId, parentFrameId } };
 }
 
 /** A clock whose time moves only by `advance()`, which runs the timers due by then. */
