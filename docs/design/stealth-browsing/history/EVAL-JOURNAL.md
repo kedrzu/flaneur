@@ -21,6 +21,34 @@ Runs on fresh profiles, the journeys following links by clicking.
   zara.com's "Akamai at the size step" was the login page: `/^Dodaj/` clicked the wishlist button.
 - **Not challenged:** skyscanner.pl's results and a result's page, zara.com's cart, kohls.com's cart.
 
+### Harder sites and longer walks
+
+14 sites that refuse plain curl, chosen across vendors (notino.pl, lego.com, kaufland.pl, thalia.de — Cloudflare;
+euro.com.pl, hm.com, asos.com, lowes.com — Akamai; homedepot.com, fiverr.com — HUMAN; leroymerlin.pl, seatgeek.com —
+DataDome; costco.com — Kasada; hertz.com — Imperva) and four long walks (search, sort, page 2, two products read with
+the wheel, cart) on decathlon, zalando, walmart and otto, plus six Google searches in a row. Full run
+`2026-11-21T18-52-42Z`: 46 of 50 passed, none challenged; the four failures were page problems, each checked on its
+screenshot. Dropped: autozone.com (a DataDome geo rule "Slider rule non US…", not detection), wayfair.com (HUMAN
+"Press & Hold" on the first load of a fresh profile — open), leboncoin.fr (below).
+
+**Open — the pace and a hidden challenge frame.** On leboncoin.fr the page shows normally, but its hidden auth iframe
+is answered with a DataDome CAPTCHA document; the pace counts the `captcha-delivery.com` request as a block of the site
+and refuses the next click for 5 minutes. Not yet known whether a person's browser gets the same hidden CAPTCHA.
+
+### Which journeys measure anything: the headless control
+
+The plain headless Chromium (`--project headless`), one attempt per journey, DataDome sites left out (a headless visit
+flags the IP there), after the evening run in which flaneur passed every one of these:
+
+- **The control is challenged — the journey separates a bot from flaneur:** decathlon.pl (Cloudflare challenge page),
+  kohls.com, zara.com, sephora.pl (Akamai "Access Denied"), zillow.com, skyscanner.pl (HUMAN), realestate.com.au,
+  otto.de (Kasada), google.com (reCAPTCHA on the second search), the reCAPTCHA v2 checkbox (image challenge).
+- **The control passes too — the journey tells nothing apart:** x-kom.pl, ikea.com, nike.com, ocado.com, amazon.pl,
+  nowsecure.nl, and both reCAPTCHA v3 readings that score the control 0.9: our test shop and antcpt.com. They stay as
+  journeys (a site can tighten), but a pass there is no evidence.
+- **The control's journey broke before a verdict** (morele, zalando, walmart, gamestop, chewy, booking, redfin, xcite):
+  undecided; several are likely silent blocks.
+
 ### Evening: the whole panel, twice
 
 After the event fix, the pace grace and the journey fixes, run `2026-11-21T15-56-51Z-sites` (flaneur driven by stock

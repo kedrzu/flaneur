@@ -4,14 +4,27 @@ import type { ChallengeVendor } from '../../classifyChallenge.js';
 import { CAPTCHA_CHECKS } from '../captchaChecks.js';
 import { JOURNEYS } from './index.js';
 
-/** The vendors the eval compares, each measured on at least this many sites so one site's quirk does not decide. */
-const MIN_SITES_PER_VENDOR = 3;
+/**
+ * The sites each compared vendor is measured on at least, so one site's quirk does not decide. The vendors in front of
+ * most of the web get more; Imperva has too few sites with a guest flow reachable from Poland to be compared.
+ */
+const MIN_SITES_PER_VENDOR: Partial<Record<ChallengeVendor, number>> = {
+    Cloudflare: 4,
+    Akamai: 4,
+    DataDome: 4,
+    HUMAN: 3,
+    Kasada: 3,
+    'AWS WAF': 3,
+    reCAPTCHA: 3,
+};
 
-test('every vendor the eval compares is measured on at least 3 sites, each journey under its own name', () => {
-    const vendors: ChallengeVendor[] = ['Akamai', 'AWS WAF', 'Cloudflare', 'DataDome', 'HUMAN', 'Kasada', 'reCAPTCHA'];
+test('every compared vendor is measured on enough distinct sites, each journey under its own name', () => {
     const sites = [...JOURNEYS, ...CAPTCHA_CHECKS];
 
-    const tooFew = vendors.filter(vendor => sites.filter(site => site.vendor === vendor).length < MIN_SITES_PER_VENDOR);
+    const tooFew = Object.entries(MIN_SITES_PER_VENDOR).filter(([vendor, min]) => {
+        const hosts = new Set(sites.filter(site => site.vendor === vendor).map(site => new URL(site.url).hostname));
+        return hosts.size < min;
+    });
     expect(tooFew).toEqual([]);
     expect(new Set(sites.map(site => site.name)).size).toBe(sites.length);
 });
