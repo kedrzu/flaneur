@@ -20,7 +20,13 @@ export const chewy = defineJourney({
             await expect(page).toHaveURL(/\/s\?query=|\/b\//);
         });
         await step('open a product', async () => {
-            await page.locator('a[href*="/dp/"]').first().click();
+            // A result is a link holding the product's heading; the header's hidden gift-card links hold none.
+            await page
+                .getByRole('link')
+                .filter({ has: page.getByRole('heading', { level: 2 }) })
+                .filter({ hasNotText: 'Sponsored' })
+                .first()
+                .click();
             await expect(page).toHaveURL(/\/dp\/\d+/);
         });
     },
