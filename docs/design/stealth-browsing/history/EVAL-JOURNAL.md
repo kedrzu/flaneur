@@ -6,6 +6,33 @@ day. Results files are in `~/.flaneur-eval/results` on the owner's machine; the 
 
 ## 2026-11-21
 
+### Night: leboncoin's hidden CAPTCHA, and the panel twice
+
+**leboncoin.fr's CAPTCHA is in a hidden frame, not on the page.** Three loads of the home page in the CLI's installed
+Chrome, each on a fresh profile, with no client actions, read through the frame events and an isolated world. Every
+first load is a 403 with DataDome's interstitial in a frame of the main frame, and the real page (200) comes 3 s
+later. In two of the three loads the page then opens `iframe#authFrame` (`display: none`, 0×0, a child of the main
+frame) at `auth.leboncoin.fr/api/authorizer/v2/authorize`. It is answered 403, loads `ct.captcha-delivery.com/c.js`
+and gets a child frame `geo.captcha-delivery.com/captcha/`. The page renders normally, and 6 s later a new sign-in frame
+gets its 200. The pace now counts a challenge only when it is the page's own: requested by the main frame's document,
+or the document of a frame the main frame holds. One nested deeper is logged and not counted
+([D5](../DECISIONS.md#d5)). The same probe showed the pace counting out-of-process challenge frames as blocks of
+`geo.captcha-delivery.com`; only page targets count now. Whether a person's browser gets the same hidden CAPTCHA is
+still not known.
+
+**The whole panel twice** (run `2026-11-21T19-38-24Z`, `--repeat-each 2`, eval profile, home connection): 91 of 102
+attempts passed and none was challenged or refused. leboncoin.fr passed 2 of 2. The 11 failures are all `broken`:
+
+- euro.com.pl 0/2: a product the profile's cart already held brings a go-to-cart dialog; fixed, passed after.
+- homedepot.com 0/2 and lowes.com 1/2: open a product.
+- xcite.com 0/2: add to cart.
+- kohls.com 1/2: open the cart.
+- fiverr.com 1/2: open a gig in a new tab.
+- amazon.pl 1/2: the cart confirmation.
+- walmart.com long 1/2: page 2.
+
+None of these was checked on its screenshot yet.
+
 ### Evening: journeys that never ran past a point
 
 Runs on fresh profiles, the journeys following links by clicking.
@@ -20,6 +47,34 @@ Runs on fresh profiles, the journeys following links by clicking.
   xcite.com Imperva's `/_Incapsula_Resource` script on ordinary pages; both now count only on a near-empty page.
   zara.com's "Akamai at the size step" was the login page: `/^Dodaj/` clicked the wishlist button.
 - **Not challenged:** skyscanner.pl's results and a result's page, zara.com's cart, kohls.com's cart.
+
+### Harder sites and longer walks
+
+14 sites that refuse plain curl, chosen across vendors (notino.pl, lego.com, kaufland.pl, thalia.de — Cloudflare;
+euro.com.pl, hm.com, asos.com, lowes.com — Akamai; homedepot.com, fiverr.com — HUMAN; leroymerlin.pl, seatgeek.com —
+DataDome; costco.com — Kasada; hertz.com — Imperva) and four long walks (search, sort, page 2, two products read with
+the wheel, cart) on decathlon, zalando, walmart and otto, plus six Google searches in a row. Full run
+`2026-11-21T18-52-42Z`: 46 of 50 passed, none challenged; the four failures were page problems, each checked on its
+screenshot. Dropped: autozone.com (a DataDome geo rule "Slider rule non US…", not detection), wayfair.com (HUMAN
+"Press & Hold" on the first load of a fresh profile — open), leboncoin.fr (below).
+
+**Open — the pace and a hidden challenge frame.** On leboncoin.fr the page shows normally, but its hidden auth iframe
+is answered with a DataDome CAPTCHA document; the pace counts the `captcha-delivery.com` request as a block of the site
+and refuses the next click for 5 minutes. Not yet known whether a person's browser gets the same hidden CAPTCHA.
+
+### Which journeys measure anything: the headless control
+
+The plain headless Chromium (`--project headless`), one attempt per journey, DataDome sites left out (a headless visit
+flags the IP there), after the evening run in which flaneur passed every one of these:
+
+- **The control is challenged — the journey separates a bot from flaneur:** decathlon.pl (Cloudflare challenge page),
+  kohls.com, zara.com, sephora.pl (Akamai "Access Denied"), zillow.com, skyscanner.pl (HUMAN), realestate.com.au,
+  otto.de (Kasada), google.com (reCAPTCHA on the second search), the reCAPTCHA v2 checkbox (image challenge).
+- **The control passes too — the journey tells nothing apart:** x-kom.pl, ikea.com, nike.com, ocado.com, amazon.pl,
+  nowsecure.nl, and both reCAPTCHA v3 readings that score the control 0.9: our test shop and antcpt.com. They stay as
+  journeys (a site can tighten), but a pass there is no evidence.
+- **The control's journey broke before a verdict** (morele, zalando, walmart, gamestop, chewy, booking, redfin, xcite):
+  undecided; several are likely silent blocks.
 
 ### Evening: the whole panel, twice
 

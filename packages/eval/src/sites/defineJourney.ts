@@ -16,6 +16,8 @@ export interface Journey {
     vendor: ChallengeVendor;
     /** Where the journey starts. */
     url: string;
+    /** Playwright tags beside the vendor's, such as `@long` on the long walks, so a run can pick or skip them. */
+    tags?: readonly string[];
     /** Walks the site, every action inside a `step`, so a failure is classified and named after its step. */
     run(page: Page, step: JourneyStep): Promise<void>;
 }

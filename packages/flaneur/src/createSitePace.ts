@@ -94,6 +94,12 @@ interface SiteState {
 interface PageState {
     /** The URL the page shows, from its target info. */
     url?: string;
+    /** The target's type from its target info: only a `page` shows a site, an out-of-process `iframe` is part of one. */
+    type?: string;
+    /** The parent of each subframe of the page, from its frame events. */
+    frameParents: Map<string, string>;
+    /** The subframes whose nested challenge was already logged, so each is logged once. */
+    nestedChallengeFrames: Set<string>;
     /** The request id of the page's current main document: deduplicates its load across sessions. */
     loadId?: string;
     /** The main document that already showed a block, so one block page counts once. */
@@ -142,7 +148,7 @@ const DEFAULT_MESSAGES: SitePaceMessages = {
 /**
  * Creates a human pace for the sites a browser visits, shared by every client since a site sees one IP. Each site
  * gets at most one page load every `intervalMs`; a block (a 403 or 429 main document, or an anti-bot vendor's
- * challenge) pauses it for `pauseMs` and doubles its interval for `blockMemoryMs`, and a second block within that
+ * challenge that is the page's own, not one nested in a subframe) pauses it for `pauseMs` and doubles its interval for `blockMemoryMs`, and a second block within that
  * stops it for `blockMemoryMs`. A block counts only once it lasts: a page that reaches a real document of the same
  * site within `blockGraceMs` got past a self-solving interstitial, and until then the site's commands go as usual. Page loads and blocks are recognised passively from the browser's events on pages a
  * client has a session on; the pace never sends a command of its own, so nothing of it is visible to a page.
@@ -260,7 +266,27 @@ export function createSitePace(options: CreateSitePaceOptions = {}): SitePace {
                 case 'Target.targetInfoChanged': {
                     const info = readTargetInfo(params);
                     if (info) {
-                        getPage(info.targetId).url = info.url;
+                        const page = getPage(info.targetId);
+                        page.url = info.url;
+                        page.type = info.type;
+                    }
+                    return;
+                }
+                case 'Page.frameAttached':
+                    onFrameParent(event.sessionId, params['frameId'], params['parentFrameId']);
+                    return;
+                case 'Page.frameNavigated': {
+                    const frame = isPlainObject(params['frame']) ? params['frame'] : {};
+                    onFrameParent(event.sessionId, frame['id'], frame['parentId']);
+                    return;
+                }
+                case 'Page.frameDetached': {
+                    const targetId = findClientPage(event.sessionId);
+                    // A frame swapped into its own process stays in the tree.
+                    if (targetId != null && typeof params['frameId'] === 'string' && params['reason'] !== 'swap') {
+                        const page = getPage(targetId);
+                        page.frameParents.delete(params['frameId']);
+                        page.nestedChallengeFrames.delete(params['frameId']);
                     }
                     return;
                 }
@@ -278,12 +304,20 @@ export function createSitePace(options: CreateSitePaceOptions = {}): SitePace {
             }
         }
 
+        function onFrameParent(sessionId: string | undefined, frameId: unknown, parentId: unknown) {
+            const targetId = findClientPage(sessionId);
+            if (targetId != null && typeof frameId === 'string' && typeof parentId === 'string') {
+                getPage(targetId).frameParents.set(frameId, parentId);
+            }
+        }
+
         /** A main-document response on a client's page is a page load, and a block when it is 403 or 429. */
         function onResponse(sessionId: string | undefined, params: Record<string, unknown>) {
             const targetId = findClientPage(sessionId);
             const { requestId, response } = params;
             if (
                 targetId == null ||
+                !isPageTarget(targetId) ||
                 params['type'] !== 'Document' ||
                 // A page target's main frame has the target's id.
                 params['frameId'] !== targetId ||
@@ -318,17 +352,38 @@ export function createSitePace(options: CreateSitePaceOptions = {}): SitePace {
             }
         }
 
-        /** A request to a vendor's challenge on a client's page makes its current document a block page. */
+        /**
+         * A request to a vendor's challenge on a client's page makes its current document a block page, when it is the
+         * page's own challenge: made by the main frame's document, or the document of a frame the main frame holds (an
+         * overlay over the page). One nested deeper, inside another subframe, is that frame's: leboncoin.fr's hidden
+         * sign-in frame gets a DataDome CAPTCHA while the page itself works.
+         */
         function onRequest(sessionId: string | undefined, params: Record<string, unknown>) {
             const targetId = findClientPage(sessionId);
             const request = params['request'];
-            if (targetId == null || !isPlainObject(request) || typeof request['url'] !== 'string') {
+            if (
+                targetId == null ||
+                !isPageTarget(targetId) ||
+                !isPlainObject(request) ||
+                typeof request['url'] !== 'string'
+            ) {
                 return;
             }
             const vendor = findChallengeVendor(request['url']);
             const page = getPage(targetId);
             const site = page.url == null ? null : toSite(page.url);
-            if (vendor == null || site == null || page.blockedLoadId === (page.loadId ?? '')) {
+            if (vendor == null || site == null) {
+                return;
+            }
+            const frameId = typeof params['frameId'] === 'string' ? params['frameId'] : undefined;
+            if (frameId != null && !isPageOwnFrame(page, targetId, frameId, params['type'] === 'Document')) {
+                if (!page.nestedChallengeFrames.has(frameId)) {
+                    page.nestedChallengeFrames.add(frameId);
+                    logger.info('A challenge nested in a subframe does not count as a block', { site, vendor });
+                }
+                return;
+            }
+            if (page.blockedLoadId === (page.loadId ?? '')) {
                 return;
             }
             page.blockedLoadId = page.loadId ?? '';
@@ -358,6 +413,24 @@ export function createSitePace(options: CreateSitePaceOptions = {}): SitePace {
             }, blockGraceMs);
         }
 
+        /**
+         * Whether a request of `frameId` is the page's own: the main frame's, or a document loaded into a frame the
+         * main frame holds. A frame whose parent was never seen counts, as nothing shows it nested.
+         */
+        function isPageOwnFrame(page: PageState, targetId: string, frameId: string, isDocument: boolean) {
+            if (frameId === targetId) {
+                return true;
+            }
+            const parentId = page.frameParents.get(frameId);
+            return parentId == null || (isDocument && parentId === targetId);
+        }
+
+        /** Whether a target shows a site of its own; an out-of-process iframe is part of its page's. */
+        function isPageTarget(targetId: string) {
+            const type = pages.get(targetId)?.type;
+            return type == null || type === 'page';
+        }
+
         /** The page a client's session is attached to; `undefined` for a session of the proxy or an unknown one. */
         function findClientPage(sessionId: string | undefined) {
             if (sessionId == null || registry.getSessionOriginator(sessionId)?.type !== 'client') {
@@ -369,7 +442,7 @@ export function createSitePace(options: CreateSitePaceOptions = {}): SitePace {
         function getPage(targetId: string) {
             let page = pages.get(targetId);
             if (!page) {
-                page = {};
+                page = { frameParents: new Map(), nestedChallengeFrames: new Set() };
                 pages.set(targetId, page);
             }
             return page;
