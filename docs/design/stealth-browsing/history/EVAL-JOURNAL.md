@@ -6,6 +6,21 @@ day. Results files are in `~/.flaneur-eval/results` on the owner's machine; the 
 
 ## 2026-11-21
 
+### Evening: journeys that never ran past a point
+
+Runs on fresh profiles, the journeys following links by clicking.
+
+- **flaneur's pace turns a self-solving interstitial into a broken journey.** realestate.com.au and chewy.com answer
+  the first load with Kasada's 429 and `ips.js`, etsy.com with DataDome's 403; each solves itself and the real page
+  renders. The pace counts the 429/403 as a block and refuses every `Input.*` command for 5 minutes; Playwright
+  retries the refused click silently until its timeout, so the journey fails `broken` ("locator.click: Timeout").
+  realestate.com.au's search box was never the problem: its call log shows the element visible, enabled and stable
+  on every retry.
+- **Misclassified as challenged:** ocado.com loads AWS WAF's CAPTCHA SDK (`captcha-sdk.awswaf.com/…/jsapi.js`) and
+  xcite.com Imperva's `/_Incapsula_Resource` script on ordinary pages; both now count only on a near-empty page.
+  zara.com's "Akamai at the size step" was the login page: `/^Dodaj/` clicked the wishlist button.
+- **Not challenged:** skyscanner.pl's results and a result's page, zara.com's cart, kohls.com's cart.
+
 ### Cause found: Playwright's DOM events
 
 Walmart, flaneur's installed Chrome, fresh profile, input layer on, each line one or more runs:

@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.otto.de/';
@@ -27,7 +26,7 @@ export const otto = defineJourney({
             await expect(page).toHaveURL(/\/suche\/thermobecher/);
         });
         await step('open a product', async () => {
-            await openLink(page.locator('a[href*="/p/"]').first());
+            await page.locator('a[href*="/p/"]').first().click();
             await expect(page.getByRole('button', { name: 'In den Warenkorb' })).toBeVisible();
         });
         await step('add to cart', async () => {

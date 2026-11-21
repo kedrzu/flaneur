@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { typeText } from '../utils/typeText.js';
 
 const URL = 'https://www.zillow.com/';
@@ -39,7 +38,7 @@ export const zillow = defineJourney({
             await expect(page).toHaveURL(/\/homes\//);
         });
         await step('open a home', async () => {
-            await openLink(page.locator('a[href*="/homedetails/"]').first());
+            await page.locator('a[href*="/homedetails/"]').first().click();
             await expect(page).toHaveURL(/\/homedetails\/.+_zpid/);
         });
     },

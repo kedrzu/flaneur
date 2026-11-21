@@ -4,6 +4,7 @@ import { createPageDriver } from '../../createPageDriver.js';
 import { runShopProbe } from '../../runShopProbe.js';
 import { checkShopScore } from '../checkShopScore.js';
 import { defineJourney, JourneyFailure, runJourney } from '../defineJourney.js';
+import { clickIntoNewTab } from '../utils/clickIntoNewTab.js';
 import { selftestTest as test } from './selftestTest.js';
 
 test('a journey through the mini shop passes, skipping an absent cookie banner', async ({
@@ -32,6 +33,20 @@ test('a journey that meets a HUMAN challenge fails as challenged, its cookies in
     const cookies = timeline.entries.at(-1)?.cookies;
     expect(cookies?.abck).toBe('invalid');
     expect(cookies?.names.toSorted()).toEqual(['_abck', '_px3']);
+});
+
+test('a journey that follows a new tab checks that tab: its challenge, its timeline', async ({
+    page,
+    step,
+    timeline,
+    tab,
+    selftestOrigin,
+}) => {
+    const failure = await runJourney(createNewTabJourney(selftestOrigin), page, step).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ outcome: { class: 'challenged', vendor: 'HUMAN', step: 'after the journey' } });
+    expect(tab.page).not.toBe(page);
+    expect(timeline.entries.at(-1)?.url).toBe(`${selftestOrigin}/challenge.html`);
 });
 
 test('the shop probe reads the visit from a local Beanwright, which scores nothing offline', async ({
@@ -92,6 +107,23 @@ function createMiniShopJourney(origin: string) {
             await step('open the cart', async () => {
                 await page.getByRole('link', { name: 'Cart (1)' }).click();
                 await expect(page.getByRole('listitem')).toHaveText(['Electric Kettle']);
+            });
+        },
+    });
+}
+
+/** Opens the mini shop's store locator, which opens in a new tab and shows HUMAN's "Press & Hold". */
+function createNewTabJourney(origin: string) {
+    return defineJourney({
+        name: 'new tab',
+        vendor: 'HUMAN',
+        url: `${origin}/`,
+        run: async (page, step) => {
+            await step('open the shop', async () => {
+                await page.goto(`${origin}/`);
+            });
+            await step('open the store locator', async () => {
+                await clickIntoNewTab(page.getByRole('link', { name: 'Store locator' }), step);
             });
         },
     });

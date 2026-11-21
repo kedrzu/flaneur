@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.vinted.pl/';
@@ -30,7 +29,7 @@ export const vinted = defineJourney({
             await expect(page).toHaveURL(/\/catalog\?.*search_text=/);
         });
         await step('open an item', async () => {
-            await openLink(page.locator('a[href*="/items/"]').first());
+            await page.locator('a[href*="/items/"]').first().click();
             await expect(page).toHaveURL(/\/items\/\d+/);
             await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
         });

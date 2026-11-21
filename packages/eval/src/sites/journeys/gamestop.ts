@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.gamestop.com/';
@@ -21,7 +20,7 @@ export const gamestop = defineJourney({
             await expect(page).toHaveURL(/\/search-new\/\?q=/);
         });
         await step('open a product', async () => {
-            await openLink(page.locator('a[href*="/products/"][href$=".html"]').first());
+            await page.locator('a[href*="/products/"][href$=".html"]').first().click();
             await expect(page).toHaveURL(/\/products\/.+\/\d+\.html/);
         });
         await step('add to cart', async () => {

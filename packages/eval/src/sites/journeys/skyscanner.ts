@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 
 const URL = 'https://www.skyscanner.pl/';
 
@@ -29,11 +28,26 @@ export const skyscanner = defineJourney({
             { optional: true },
         );
         await step('search flights', async () => {
-            await page.goto(flightsUrl(new Date()), { referer: page.url() });
+            // A typed navigation, as a person opens a saved search: filling the form's date pickers is not what the
+            // journey measures, and the results page is where HUMAN has challenged.
+            await page.goto(flightsUrl(new Date()));
             await expect(page.getByText(/\d\s?zł/).first()).toBeVisible({ timeout: 60_000 });
         });
+        await step(
+            'close the price alert prompt',
+            async () => {
+                await page.getByRole('button', { name: 'Zamknij okno dialogowe' }).click();
+            },
+            { optional: true },
+        );
         await step('open a result', async () => {
-            await openLink(page.locator('a[href*="/transport/loty/"][href*="/config/"]').first());
+            // A result is a card whose "Sprawdź" button opens it; an ad's opens the airline's site in a new window.
+            await page
+                .getByRole('link', { name: /^Opcja \d+: (?!Reklama)/ })
+                .first()
+                .getByRole('button', { name: /^Wybierz opcję lotu \d+$/ })
+                .click();
+            await expect(page).toHaveURL(/\/(config|itinerary)\//);
             await expect(page.getByText(/\d\s?zł/).first()).toBeVisible({ timeout: 60_000 });
         });
     },

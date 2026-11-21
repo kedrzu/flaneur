@@ -41,6 +41,7 @@ the user agent); read it before publishing one.
 A [Playwright Test](https://playwright.dev/docs/test-intro) suite (`src/sites`) that checks whether a script written
 in stock Playwright gets through real protected sites with flaneur, and does so consistently. Each journey is what a
 person shopping does: open the site, accept cookies, search, open a product, add it to a guest cart, view the cart.
+It follows links by clicking them; a link that opens a new tab moves the journey to that tab (`clickIntoNewTab`).
 Why it is a Playwright Test suite and not a probe of `bun run eval`:
 [site-journeys-in-playwright-test](../../docs/decisions/site-journeys-in-playwright-test.md).
 

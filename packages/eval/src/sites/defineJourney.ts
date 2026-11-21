@@ -23,6 +23,16 @@ export interface Journey {
 /** Runs one named step of a journey; a failure is classified and thrown as a `JourneyFailure`. */
 export interface JourneyStep {
     (name: string, action: () => Promise<void>, options?: JourneyStepOptions): Promise<void>;
+    /**
+     * Moves the journey to a tab it opened, as a link with `target=_blank` does: the challenge checks of the steps
+     * after, the timeline and a failure's evidence read that tab from then on.
+     */
+    follow(page: Page): void;
+}
+
+/** The tab a journey acts in: the test's page until the journey follows another with `JourneyStep.follow`. */
+export interface JourneyTab {
+    page: Page;
 }
 
 /** How a step may fail. */
@@ -39,7 +49,8 @@ export type JourneyOutcome = FailureClassification & { step: string };
 
 /** Options of `createJourneyStep`. */
 export interface CreateJourneyStepParams {
-    page: Page;
+    /** Shared with the fixtures that read the journey's page; `follow` replaces its page. */
+    tab: JourneyTab;
     testInfo: TestInfo;
     /** The page's action timeout outside optional steps; `0` is none. */
     actionTimeout: number;
@@ -97,21 +108,31 @@ export async function runJourney(journey: Journey, page: Page, step: JourneyStep
  * page. The first failing step writes the test's `outcome` annotation. Every step adds to the timeline.
  * @__NO_SIDE_EFFECTS__
  */
-export function createJourneyStep({ page, testInfo, actionTimeout, timeline }: CreateJourneyStepParams): JourneyStep {
-    return (name, action, options = {}) =>
-        test.step(name, async () => {
-            if (timeline.entries.length === 0) {
-                await timeline.record('start');
-            }
-            try {
-                await runStep(name, action, options);
-            } finally {
-                await timeline.record(name);
-            }
-        });
+export function createJourneyStep({ tab, testInfo, actionTimeout, timeline }: CreateJourneyStepParams): JourneyStep {
+    return Object.assign(
+        (name: string, action: () => Promise<void>, options: JourneyStepOptions = {}) =>
+            test.step(name, async () => {
+                if (timeline.entries.length === 0) {
+                    await timeline.record('start');
+                }
+                try {
+                    await runStep(name, action, options);
+                } finally {
+                    await timeline.record(name);
+                }
+            }),
+        { follow },
+    );
+
+    function follow(page: Page) {
+        page.setDefaultTimeout(actionTimeout);
+        tab.page = page;
+    }
 
     async function runStep(name: string, action: () => Promise<void>, options: JourneyStepOptions) {
         await failOnLastingChallenge(name);
+        // The action may follow a new tab; its timeout is restored on the tab it started on.
+        const { page } = tab;
 
         if (options.optional) {
             page.setDefaultTimeout(OPTIONAL_STEP_TIMEOUT_MS);
@@ -122,7 +143,7 @@ export function createJourneyStep({ page, testInfo, actionTimeout, timeline }: C
             if (error instanceof JourneyFailure) {
                 throw error;
             }
-            const facts = await readPageFacts(page);
+            const facts = await readPageFacts(tab.page);
             if (options.optional && error instanceof errors.TimeoutError) {
                 failOnChallenge(name, facts);
                 return;
@@ -141,10 +162,10 @@ export function createJourneyStep({ page, testInfo, actionTimeout, timeline }: C
      */
     async function failOnLastingChallenge(name: string) {
         const deadline = Date.now() + CHALLENGE_RESOLVE_MS;
-        let facts = await readPageFacts(page);
+        let facts = await readPageFacts(tab.page);
         while (facts != null && findChallenge(facts) != null && Date.now() < deadline) {
             await sleep(CHALLENGE_POLL_MS);
-            facts = await readPageFacts(page);
+            facts = await readPageFacts(tab.page);
         }
         failOnChallenge(name, facts);
     }

@@ -1,10 +1,11 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.ocado.com/';
 
-/** Ocado behind AWS WAF: a category, one product into the guest trolley, the trolley. */
+/** Ocado behind AWS WAF: a search, one product into the guest trolley, the trolley's quick view. */
 export const ocado = defineJourney({
     name: 'ocado.com',
     vendor: 'AWS WAF',
@@ -20,8 +21,9 @@ export const ocado = defineJourney({
             },
             { optional: true },
         );
-        await step('open a category', async () => {
-            await page.goto(`${URL}categories/fresh-chilled-food/milk-butter-eggs`, { referer: page.url() });
+        await step('search', async () => {
+            await submitSearch(page.getByRole('search').getByRole('combobox'), 'semi skimmed milk');
+            await expect(page).toHaveURL(/\/search/);
             await expect(page.getByRole('button', { name: /^Add .+ to trolley/ }).first()).toBeVisible();
         });
         await step('add to trolley', async () => {
@@ -31,11 +33,10 @@ export const ocado = defineJourney({
                 .click();
         });
         await step('open the trolley', async () => {
-            await page
-                .getByRole('link', { name: /trolley/i })
-                .first()
-                .click();
-            await expect(page).toHaveURL(/trolley|basket/);
+            // The trolley opens as a quick view over the page; its full page is the checkout, which a journey never enters.
+            const trolley = page.getByRole('button', { name: /^Trolley £\d+\.\d+ - Open quick view trolley/ });
+            await expect(trolley).not.toHaveAccessibleName(/^Trolley £0\.00/);
+            await trolley.click();
         });
     },
 });

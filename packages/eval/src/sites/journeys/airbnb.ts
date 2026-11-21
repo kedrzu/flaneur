@@ -1,7 +1,7 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
+import { clickIntoNewTab } from '../utils/clickIntoNewTab.js';
 import { typeText } from '../utils/typeText.js';
 
 const URL = 'https://www.airbnb.pl/';
@@ -32,8 +32,11 @@ export const airbnb = defineJourney({
             await expect(page).toHaveURL(/\/s\/.*Zakopane/);
         });
         await step('open a listing', async () => {
-            await openLink(page.locator('a[href*="/rooms/"]').first());
-            await expect(page).toHaveURL(/\/rooms\/\d+/);
+            // The card's link lies under its photos, so a person clicks the photo; Airbnb opens the listing in a new tab.
+            const card = page.getByTestId('card-container').first();
+            await expect(card.locator('img').first()).toBeVisible();
+            const listing = await clickIntoNewTab(card, step);
+            await expect(listing).toHaveURL(/\/rooms\/\d+/);
         });
     },
 });

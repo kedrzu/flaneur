@@ -1,7 +1,7 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
+import { clickIntoNewTab } from '../utils/clickIntoNewTab.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.redfin.com/';
@@ -20,8 +20,9 @@ export const redfin = defineJourney({
             await expect(page).toHaveURL(/\/city\//);
         });
         await step('open a home', async () => {
-            await openLink(page.locator('a[href*="/home/"]').first());
-            await expect(page).toHaveURL(/\/home\/\d+/);
+            // Redfin opens a home in a new tab.
+            const home = await clickIntoNewTab(page.locator('a[href*="/home/"]').first(), step);
+            await expect(home).toHaveURL(/\/home\/\d+/);
         });
     },
 });

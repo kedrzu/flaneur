@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { typeText } from '../utils/typeText.js';
 
 const URL = 'https://www.chewy.com/';
@@ -21,7 +20,7 @@ export const chewy = defineJourney({
             await expect(page).toHaveURL(/\/s\?query=|\/b\//);
         });
         await step('open a product', async () => {
-            await openLink(page.locator('a[href*="/dp/"]').first());
+            await page.locator('a[href*="/dp/"]').first().click();
             await expect(page).toHaveURL(/\/dp\/\d+/);
         });
     },

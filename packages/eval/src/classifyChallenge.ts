@@ -125,15 +125,24 @@ export function findChallenge(facts: PageFacts): FoundChallenge | null {
     if (kasada != null && facts.textLength < MIN_REAL_TEXT) {
         return { vendor: 'Kasada', evidence: 'Kasada ips.js on an empty page' };
     }
-    // AWS WAF: its CAPTCHA script (`…captcha.awswaf.com/…/captcha.js`) on any page, or its challenge script
-    // (`…token.awswaf.com/…/challenge.js`) on a near-empty interstitial: real pages load the challenge script too.
+    // AWS WAF: its CAPTCHA page's script (`…captcha.awswaf.com/…/captcha.js`) on any page, or any of its scripts on a
+    // near-empty interstitial. Real pages load the challenge script (`…token.awswaf.com/…/challenge.js`) and the CAPTCHA
+    // SDK (`…captcha-sdk.awswaf.com/…/jsapi.js`, ocado.com, 2026-11-21) without showing anything.
     const awsWaf = facts.scripts.find(src => /(^|\.)awswaf\.com$/.test(URL.parse(src)?.hostname ?? ''));
-    if (awsWaf != null && (awsWaf.includes('captcha') || facts.textLength < MIN_REAL_TEXT)) {
+    if (
+        awsWaf != null &&
+        ((URL.parse(awsWaf)?.pathname.endsWith('/captcha.js') ?? false) || facts.textLength < MIN_REAL_TEXT)
+    ) {
         return { vendor: 'AWS WAF', evidence: `AWS WAF ${describeUrl(awsWaf)}` };
     }
-    // Imperva (Incapsula): its challenge page loads `/_Incapsula_Resource` in an iframe or a script; its block page
-    // says "Request unsuccessful. Incapsula incident ID: …".
-    const imperva = [...facts.iframes, ...facts.scripts].find(src => src.includes('/_Incapsula_Resource'));
+    // Imperva (Incapsula): its challenge page loads `/_Incapsula_Resource` in an iframe, or as a script on a near-empty
+    // page; its block page says "Request unsuccessful. Incapsula incident ID: …". Real pages load the resource as a
+    // script too (xcite.com, 2026-11-21).
+    const imperva =
+        facts.iframes.find(src => src.includes('/_Incapsula_Resource')) ??
+        (facts.textLength < MIN_REAL_TEXT
+            ? facts.scripts.find(src => src.includes('/_Incapsula_Resource'))
+            : undefined);
     if (imperva != null) {
         return { vendor: 'Imperva', evidence: `Imperva ${describeUrl(imperva)}` };
     }

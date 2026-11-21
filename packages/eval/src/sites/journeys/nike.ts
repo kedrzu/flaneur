@@ -3,7 +3,6 @@ import { expect } from 'playwright/test';
 import { assert } from '@nzyme/utils/assert.js';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.nike.com/pl/';
@@ -37,7 +36,8 @@ export const nike = defineJourney({
             await expect(page).toHaveURL(/\/pl\/w\?q=/);
         });
         await step('open a product', async () => {
-            await openLink(page.locator('a[href*="/pl/t/"]').first());
+            // The card's overlay link lies under its image, which has a link of its own: a person clicks the image.
+            await page.locator('a.product-card__img-link-overlay[href*="/pl/t/"]').first().click();
             await expect(page).toHaveURL(/\/pl\/t\//);
         });
         await step('choose a size', async () => {

@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.xcite.com/';
@@ -20,7 +19,7 @@ export const xcite = defineJourney({
             await expect(page).toHaveURL(/\/search\?q=air/);
         });
         await step('open a product', async () => {
-            await openLink(page.locator('a[href*="/p"]').filter({ hasText: /fryer/i }).first());
+            await page.locator('a[href*="/p"]').filter({ hasText: /fryer/i }).first().click();
             await expect(page.getByRole('button', { name: /Add To Cart/i }).first()).toBeVisible();
         });
         await step('add to cart', async () => {
@@ -30,7 +29,7 @@ export const xcite = defineJourney({
                 .click();
         });
         await step('open the cart', async () => {
-            await page.getByRole('link', { name: /cart/i }).first().click();
+            await page.getByRole('button', { name: /^View cart/ }).click();
             await expect(page).toHaveURL(/cart/);
         });
     },

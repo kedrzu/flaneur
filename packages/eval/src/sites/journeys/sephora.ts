@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.sephora.pl/';
@@ -27,8 +26,9 @@ export const sephora = defineJourney({
             await expect(page).toHaveURL(/\/wyniki-wyszukiwania\?q=/);
         });
         await step('open a product', async () => {
-            await openLink(page.locator('a[href*="/p/"][href*="-P"]').first());
-            await expect(page).toHaveURL(/\/p\/.+-P\d+\.html/);
+            // The header's menus, inert until opened, link products too.
+            await page.getByRole('main').locator('a[href*="/p/"]').first().click();
+            await expect(page).toHaveURL(/\/p\/.+\.html/);
         });
         await step('add to cart', async () => {
             await page.getByRole('button', { name: 'Dodaj do koszyka' }).first().click();

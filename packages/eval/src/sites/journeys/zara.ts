@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { openLink } from '../utils/openLink.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.zara.com/pl/pl/';
@@ -28,13 +27,14 @@ export const zara = defineJourney({
             await expect(page).toHaveURL(/\/pl\/pl\/search\?searchTerm=/);
         });
         await step('open a product', async () => {
-            await openLink(page.locator('a.product-grid-product__link').first());
+            await page.locator('a.product-grid-product__link').first().click();
             await expect(page).toHaveURL(/-p\d+\.html/);
         });
         await step('add to cart', async () => {
+            // The button reads "Dodaj"; the wishlist's, named "Dodaj element do wishlist", leads to the login.
             await page
-                .getByRole('button', { name: /^Dodaj/ })
-                .first()
+                .getByRole('button')
+                .filter({ hasText: /^Dodaj$/ })
                 .click();
         });
         await step('choose a size', async () => {
@@ -42,10 +42,10 @@ export const zara = defineJourney({
                 .getByRole('button', { name: /^(XS|S|M|L|XL)$/ })
                 .first()
                 .click();
-            await expect(page.getByRole('dialog', { name: /DODANO DO KOSZYKA/ })).toBeVisible();
+            await expect(page.getByRole('dialog').getByRole('heading', { name: 'Dodano do koszyka' })).toBeVisible();
         });
         await step('open the cart', async () => {
-            await page.getByRole('link', { name: 'ZOBACZ KOSZYK' }).click();
+            await page.getByRole('dialog').getByRole('button', { name: 'Zobacz koszyk' }).click();
             await expect(page).toHaveURL(/\/shop\/cart/);
         });
     },
