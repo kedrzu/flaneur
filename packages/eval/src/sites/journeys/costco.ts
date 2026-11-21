@@ -1,5 +1,7 @@
 import { expect } from 'playwright/test';
 
+import { assert } from '@nzyme/utils/assert.js';
+
 import { defineJourney } from '../defineJourney.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -21,14 +23,25 @@ export const costco = defineJourney({
             await submitSearch(page.getByRole('combobox', { name: 'Search Costco' }), 'paper towels');
             await expect(page).toHaveURL(/\/s\?keyword=paper/);
         });
+        let product = '';
         await step('add to cart', async () => {
-            await page.getByRole('button', { name: 'Add to Cart' }).first().click();
-            await expect(page.getByRole('button', { name: 'Remove from Cart' }).first()).toBeVisible();
+            // The eval profile's cart keeps earlier runs' items, whose cards show a quantity instead of the button.
+            const card = page
+                .getByRole('group')
+                .filter({ has: page.getByRole('button', { name: 'Add to Cart' }) })
+                .first();
+            const name = await card.getByRole('heading', { level: 3 }).textContent();
+            assert(name, 'A product card has no name');
+            product = name.trim();
+            await card.getByRole('button', { name: 'Add to Cart' }).click();
+            const added = page.getByRole('group').filter({ has: page.getByRole('heading', { name: product }) });
+            await expect(added.getByText(/[1-9]\d* in Cart/)).toBeVisible();
         });
         await step('open the cart', async () => {
-            await page.getByRole('link', { name: 'Cart', exact: true }).click();
-            await expect(page).toHaveURL(/CheckoutCartDisplayView/);
-            await expect(page.getByRole('heading', { name: 'Cart', level: 1 })).toBeVisible();
+            // The header's link names the count: "Cart, 1 item".
+            await page.getByRole('link', { name: /^Cart, [1-9]/ }).click();
+            await expect(page).toHaveURL(/\/CheckoutCart/);
+            await expect(page.getByText(product).filter({ visible: true }).first()).toBeVisible();
         });
     },
 });

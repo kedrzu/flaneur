@@ -20,6 +20,7 @@ import { ikea } from './ikea.js';
 import { kaufland } from './kaufland.js';
 import { kohls } from './kohls.js';
 import { lego } from './lego.js';
+import { leboncoin } from './leboncoin.js';
 import { leroymerlin } from './leroymerlin.js';
 import { lowes } from './lowes.js';
 import { morele } from './morele.js';
@@ -60,6 +61,7 @@ export const JOURNEYS: readonly Journey[] = [
     etsy,
     airbnb,
     leroymerlin,
+    leboncoin,
     seatgeek,
     kohls,
     zalando,

@@ -57,13 +57,12 @@ bun run eval:sites:selftest                        # the suite's own check, on l
 - **Journeys:** Cloudflare: decathlon.pl, x-kom.pl, morele.net, ikea.com, notino.pl, lego.com, kaufland.pl,
   thalia.de. Akamai: kohls.com, zalando.pl, zara.com, sephora.pl, euro.com.pl, hm.com, asos.com, lowes.com. HUMAN:
   walmart.com, zillow.com, gamestop.com, skyscanner.pl, homedepot.com (behind Akamai too), fiverr.com. DataDome:
-  vinted.pl, tripadvisor.com, etsy.com, airbnb.pl, leroymerlin.pl, seatgeek.com. Kasada: realestate.com.au, nike.com
+  vinted.pl, tripadvisor.com, etsy.com, airbnb.pl, leroymerlin.pl, seatgeek.com, leboncoin.fr (browse only: a search and an ad). Kasada: realestate.com.au, nike.com
   (behind Akamai too), otto.de, chewy.com, costco.com. AWS WAF: booking.com, redfin.com, ocado.com. Imperva: xcite.com,
   hertz.com. Amazon's robot check: amazon.pl. reCAPTCHA: google.com (`/sorry/`) and the [test shop](shop/README.md),
   whose mean reCAPTCHA v3 score must reach 0.5. Dropped: otodom.pl set no DataDome or AWS WAF cookie; autozone.com
   shows DataDome's slider to every visitor outside the US (its cookie names the rule); wayfair.com shows HUMAN's
-  "Press & Hold" on the first page load, so no journey could be written past it; leboncoin.fr gets a DataDome CAPTCHA
-  in a hidden sign-in frame on every home page load, which flaneur's pace counts as a block (all 2026-11-21).
+  "Press & Hold" on the first page load, so no journey could be written past it (all 2026-11-21).
 - **Long journeys** (tag `@long`): decathlon.pl, zalando.pl, walmart.com and otto.de once more as a longer walk (a
   search, a sort, page 2, two products read with the wheel and left with Back, the cart), and google.com six searches
   in a row, each with a result opened and left, to see after how many Google shows `/sorry/`. `--grep-invert @long`
@@ -82,7 +81,9 @@ bun run eval:sites:selftest                        # the suite's own check, on l
   which makes the journey tell nothing apart. It is saved as `~/.flaneur-eval/results/<time>-sites.json` with every
   attempt: its class, evidence, final URL, attachments and step timeline. The timeline has, before the first step and
   after each, the page's URL and the anti-bot cookies held for it: names only, never values, plus Akamai's `_abck`
-  state (`valid` when its second `~` field is `0`, a community reading Akamai does not document).
+  state (`valid` when its second `~` field is `0`, a community reading Akamai does not document), and
+  `nestedChallenges`: a vendor's challenge frame inside another subframe (leboncoin.fr's hidden sign-in frame), which
+  neither the pace nor the journey counts as the page's challenge.
 - **Artifacts:** each run writes to its own `~/.flaneur-eval/sites/<time>/`, so older runs' screenshots stay; a failed
   attempt gets its screenshot, its HTML (up to 300 KB) and its accessibility tree.
 - **Cooldown:** a site that challenged or refused flaneur cools for an hour in `~/.flaneur-eval/sites/cooldown.json`,

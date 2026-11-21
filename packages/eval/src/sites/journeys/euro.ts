@@ -1,4 +1,5 @@
 import { expect } from 'playwright/test';
+import type { Page } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
 import { submitSearch } from '../utils/submitSearch.js';
@@ -44,12 +45,25 @@ export const euro = defineJourney({
             await expect(page.getByRole('button', { name: 'Do koszyka' }).first()).toBeVisible();
         });
         await step('add to cart', async () => {
-            await page.getByRole('button', { name: 'Do koszyka' }).first().click();
-            await expect(page).toHaveURL(/\/to-cart\.bhtml/);
+            // The page repeats the button in a sticky bar kept `inert` until it shows; a click there never lands.
+            await page
+                .getByRole('button', { name: 'Do koszyka' })
+                .and(page.locator(':not([inert], [inert] *)'))
+                .first()
+                .click();
+            // A product the eval profile's cart already holds is not added again: a dialog sends to the cart instead
+            // of the added-to-cart page.
+            await expect(toCart(page).first()).toBeVisible();
         });
         await step('open the cart', async () => {
-            await page.getByRole('link', { name: 'Przejdź do koszyka' }).click();
+            await toCart(page).first().click();
             await expect(page).toHaveURL(/\/cart\.bhtml/);
         });
     },
 });
+
+/** "Przejdź do koszyka": a link on the added-to-cart page, a button in the already-in-cart dialog. */
+function toCart(page: Page) {
+    const name = 'Przejdź do koszyka';
+    return page.getByRole('link', { name }).or(page.getByRole('button', { name }));
+}
