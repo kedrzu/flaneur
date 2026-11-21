@@ -163,13 +163,15 @@ language, and anything later. Vendors document client-side JS fingerprinting fir
 **flaneur enforces a human pace on every site and backs off when a page shows a CAPTCHA or block. Pace: at most one
 page load per site every 5 seconds, shared by every client of the browser. A block is recognised passively, from the
 page events the proxy already relays to the client: a main document answered 403 or 429, or a request to a known
-challenge URL. After a first block the site gets a 5-minute pause and a doubled interval for an hour; a second block
-within the hour refuses further actions on that site and tells the agent to ask the person. A wait of up to about 15
+challenge URL. A block counts only once it lasts: when the same page reaches a 2xx or 3xx main document of the same
+site within 20 seconds, it got past a self-solving interstitial and nothing is counted; until then the site's commands
+go at the normal pace. After a first block the site gets a 5-minute pause and a doubled interval for an hour; a second
+block within the hour refuses further actions on that site and tells the agent to ask the person. A wait of up to about 15
 seconds is held silently; a longer one is refused with a message saying why and for how long, and the agent's
 instructions (the flaneur skill, or the host's own) say such a message is deliberate. A host hands one pace to every
 launch, so what it learned of blocks outlives a browser restart.** (2026-11-15, design agent proposal, owner agreed;
 adaptive from the first version is the owner's choice; values, recognition and the message chosen by the owner on
-2026-11-16 from the Allegro measurement)
+2026-11-16 from the Allegro measurement; the grace added on 2026-11-21 from the site eval)
 
 **Why.** Blocks after N actions come from volume per session and IP, which no fingerprint fix changes. Enforced in the
 proxy, the agent cannot skip it; telling the agent keeps it from treating the wait as a broken browser. A generic pace
@@ -177,7 +179,9 @@ fits "any site" ([D1](#d1)). Passive recognition sends nothing a page could obse
 command 30 seconds and shows a refusal's text to the agent, so a short hold fits inside a command and a long wait
 needs words. A navigation the agent writes in its own page script is counted when its document arrives but not
 held: the proxy gates the commands that load pages, and agent-browser's back and forward are such commands, but it
-does not read the agent's scripts.
+does not read the agent's scripts. A self-solving interstitial is not a block: the browser gets through, so refusing
+the next clicks for 5 minutes would only stall the agent; a CAPTCHA the agent cannot solve still counts, as its page
+never reaches a real document in time. Commands go while a block is pending because the page may be solving itself.
 
 > **Checked 2026-11-16:** Allegro from the owner's home connection, the agent's browser after the launch flag and the
 > isolated-world rule: 40 searches at 8-second intervals and 40 at 5-second intervals, each with results in about 1.3
@@ -187,6 +191,14 @@ does not read the agent's scripts.
 > **Checked 2026-11-16:** agent-browser v0.43.0 waits 30 seconds for a CDP reply (`cli/src/native/cdp/client.rs:801`)
 > and prints a CDP error's text, rewritten only when it contains "timeout" or "intercept"
 > (`cli/src/native/browser.rs:237-270`).
+
+> **Checked 2026-11-21:** the site eval on a fresh profile: Kasada answers the first visit to realestate.com.au and
+> chewy.com with a 429 page running `ips.js`, which solves a proof of work and reloads to the real page within
+> seconds; DataDome answers etsy.com with a 403 device check that reloads by itself. With every block counted at once,
+> the pace paused these sites after the browser had got through, and the agent's next clicks were refused for 5
+> minutes. Playwright 1.65.1 retries an action whose `Input.dispatchMouseEvent` gets a CDP error until its timeout
+> without showing the error (`retryWithProgressAndBackoff` retries every `ProtocolError` except a closed session), so
+> a refusal of an input command reaches a Playwright client only as a timeout.
 
 **Rejected.**
 

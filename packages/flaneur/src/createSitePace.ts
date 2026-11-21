@@ -42,6 +42,11 @@ export interface CreateSitePaceOptions {
     blockMemoryMs?: number;
     /** The longest wait a command is held for silently, longer ones are refused; 15 s by default. */
     maxHoldMs?: number;
+    /**
+     * How long a page that showed a block has to reach a real document of the same site before the block counts; 20 s
+     * by default. Kasada and DataDome answer a fresh visitor with an interstitial that solves itself and reloads.
+     */
+    blockGraceMs?: number;
     messages?: SitePaceMessages;
 }
 
@@ -91,8 +96,18 @@ interface PageState {
     url?: string;
     /** The request id of the page's current main document: deduplicates its load across sessions. */
     loadId?: string;
-    /** The main document that already counted as a block, so one block page counts once. */
+    /** The main document that already showed a block, so one block page counts once. */
     blockedLoadId?: string;
+    /** The block the page showed and may still get past on its own, within `blockGraceMs`. */
+    pendingBlock?: PendingBlock;
+}
+
+/** A block seen on a page that counts only if the page does not reach a real document of its site in time. */
+interface PendingBlock {
+    site: string;
+    reason: string;
+    /** The page got past it: the block is dropped when its grace ends. */
+    passed: boolean;
 }
 
 /** The key a `SitePace` is attached by; not exported from the package, so only `launchStealthBrowser` attaches one. */
@@ -105,6 +120,7 @@ const PAUSE_MS = 5 * MINUTE_MS;
 const BLOCK_MEMORY_MS = 60 * MINUTE_MS;
 /** The longest wait held silently; agent-browser gives a command 30 s. */
 const MAX_HOLD_MS = 15 * SECOND_MS;
+const BLOCK_GRACE_MS = 20 * SECOND_MS;
 /** Main-document statuses that are a block. */
 const BLOCK_STATUSES = new Set([403, 429]);
 /** The commands that surely load a page, so take the site's slot when let through. */
@@ -127,7 +143,8 @@ const DEFAULT_MESSAGES: SitePaceMessages = {
  * Creates a human pace for the sites a browser visits, shared by every client since a site sees one IP. Each site
  * gets at most one page load every `intervalMs`; a block (a 403 or 429 main document, or an anti-bot vendor's
  * challenge) pauses it for `pauseMs` and doubles its interval for `blockMemoryMs`, and a second block within that
- * stops it for `blockMemoryMs`. Page loads and blocks are recognised passively from the browser's events on pages a
+ * stops it for `blockMemoryMs`. A block counts only once it lasts: a page that reaches a real document of the same
+ * site within `blockGraceMs` got past a self-solving interstitial, and until then the site's commands go as usual. Page loads and blocks are recognised passively from the browser's events on pages a
  * client has a session on; the pace never sends a command of its own, so nothing of it is visible to a page.
  * @__NO_SIDE_EFFECTS__
  */
@@ -139,6 +156,7 @@ export function createSitePace(options: CreateSitePaceOptions = {}): SitePace {
     const pauseMs = options.pauseMs ?? PAUSE_MS;
     const blockMemoryMs = options.blockMemoryMs ?? BLOCK_MEMORY_MS;
     const maxHoldMs = options.maxHoldMs ?? MAX_HOLD_MS;
+    const blockGraceMs = options.blockGraceMs ?? BLOCK_GRACE_MS;
     const messages = options.messages ?? DEFAULT_MESSAGES;
     const sites = new Map<string, SiteState>();
 
@@ -288,9 +306,15 @@ export function createSitePace(options: CreateSitePaceOptions = {}): SitePace {
             const now = clock.now();
             state.lastSlot = Math.max(state.lastSlot ?? now, now);
             const status = response['status'];
-            if (typeof status === 'number' && BLOCK_STATUSES.has(status)) {
+            if (typeof status !== 'number') {
+                return;
+            }
+            if (BLOCK_STATUSES.has(status)) {
                 page.blockedLoadId = requestId;
-                recordBlock(site, `status ${status}`);
+                showBlock(page, site, `status ${status}`);
+            } else if (status < 400 && page.pendingBlock?.site === site) {
+                page.pendingBlock.passed = true;
+                page.pendingBlock = undefined;
             }
         }
 
@@ -308,7 +332,30 @@ export function createSitePace(options: CreateSitePaceOptions = {}): SitePace {
                 return;
             }
             page.blockedLoadId = page.loadId ?? '';
-            recordBlock(site, `${vendor} challenge`);
+            showBlock(page, site, `${vendor} challenge`);
+        }
+
+        /**
+         * A block on a page counts once its grace ends without the page reaching a real document of the site; a page
+         * already waiting out one keeps it, so an interstitial that reloads into itself counts once.
+         */
+        function showBlock(page: PageState, site: string, reason: string) {
+            if (page.pendingBlock?.site === site) {
+                return;
+            }
+            const pending: PendingBlock = { site, reason, passed: false };
+            page.pendingBlock = pending;
+            logger.debug('A site showed a block, which counts if it lasts', { site, reason });
+            clock.setTimeout(() => {
+                if (page.pendingBlock === pending) {
+                    page.pendingBlock = undefined;
+                }
+                if (pending.passed) {
+                    logger.info('A site let the browser past its block', { site, reason });
+                } else {
+                    recordBlock(site, reason);
+                }
+            }, blockGraceMs);
         }
 
         /** The page a client's session is attached to; `undefined` for a session of the proxy or an unknown one. */

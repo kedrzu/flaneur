@@ -9,6 +9,7 @@ import type { CreateSitePaceOptions, SitePaceClock, SitePaceRun, SitePaceVerdict
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
+const GRACE = 20 * SECOND;
 
 test('a second load of a site waits out 5 s from the first, other sites go at once, www. is the same site', async () => {
     const { run, clock, emit } = setup();
@@ -52,6 +53,7 @@ test('a block pauses its site for 5 minutes, then doubles the interval for the r
     // Two sessions on the page both report the load: still one block.
     emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 403));
     emit(documentResponse('S2', 'T1', 'L1', 'https://shop.pl/', 403));
+    clock.advance(GRACE);
 
     clock.advance(MINUTE);
     expect(await run.gate(navigate('https://shop.pl/'))).toEqual({
@@ -85,6 +87,7 @@ test('a second block within the hour stops the site until an hour after it, then
     emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 429));
     clock.advance(30 * MINUTE);
     emit(documentResponse('S1', 'T1', 'L2', 'https://shop.pl/', 403));
+    clock.advance(GRACE);
 
     const stopped: SitePaceVerdict = {
         type: 'refuse',
@@ -115,7 +118,7 @@ test("every refusal's text comes from the messages given, with the site, the wai
 
     emit(pageUrl('T1', 'https://shop.pl/'));
     emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 403));
-    clock.advance(MINUTE);
+    clock.advance(GRACE + MINUTE);
     expect(await run.gate(navigate('https://shop.pl/'))).toEqual({
         type: 'refuse',
         message: 'paused shop.pl 240000 true 10000',
@@ -130,6 +133,7 @@ test("every refusal's text comes from the messages given, with the site, the wai
     });
 
     emit(documentResponse('S1', 'T1', 'L2', 'https://shop.pl/', 429));
+    clock.advance(GRACE);
     expect(await run.gate(navigate('https://shop.pl/'))).toEqual({ type: 'refuse', message: 'stopped shop.pl' });
 });
 
@@ -151,7 +155,7 @@ test("a vendor's challenge request blocks the page's site once per document; ord
     emit(documentResponse('S1', 'T1', 'L2', 'https://shop.pl/', 200));
     emit(request('S1', 'https://geo.captcha-delivery.com/captcha/?initialCid=x'));
     emit(request('S1', 'https://ct.captcha-delivery.com/c.js'));
-    clock.advance(SECOND);
+    clock.advance(GRACE);
     const verdict = await run.gate(navigate('https://shop.pl/'));
     expect(verdict.type === 'refuse' ? verdict.message : undefined).toContain('after it blocked or challenged');
 
@@ -160,21 +164,24 @@ test("a vendor's challenge request blocks the page's site once per document; ord
         'https://captcha.px-cdn.net/PXabc/captcha.js',
         'https://collector-pxabc.px-cdn.net/captcha/x',
     ]) {
-        const { run: other, emit: emitOther } = setup();
+        const { run: other, clock: otherClock, emit: emitOther } = setup();
         emitOther(pageUrl('T1', 'https://shop.pl/'));
         emitOther(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 200));
         emitOther(request('S1', url));
+        otherClock.advance(GRACE);
         expect(await other.gate(navigate('https://shop.pl/'))).toMatchObject({ type: 'refuse' });
     }
 });
 
 test("loads of a subframe or on a session of the proxy don't count; one of an ungrouped client does", async () => {
-    const { run, emit } = setup();
+    const { run, clock, emit } = setup();
     emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 403, 'FRAME'));
     emit(documentResponse('S9', 'T9', 'L2', 'https://shop.pl/', 403));
+    clock.advance(GRACE);
     expect(await track(run.gate(navigate('https://shop.pl/'))).settled()).toEqual({ type: 'go' });
 
     emit(documentResponse('S3', 'T3', 'L3', 'https://other.pl/', 403));
+    clock.advance(GRACE);
     expect(await run.gate(navigate('https://other.pl/'))).toMatchObject({ type: 'refuse' });
 });
 
@@ -206,7 +213,7 @@ test("a click and Enter wait for the page's last load but take no slot; moves, t
 });
 
 test('a held command is refused when its site gets blocked while it waits', async () => {
-    const { run, clock, emit } = setup();
+    const { run, clock, emit } = setup({ blockGraceMs: 2 * SECOND });
     emit(pageUrl('T1', 'https://shop.pl/'));
     emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 200));
     const held = track(run.gate(navigate('https://shop.pl/next')));
@@ -228,25 +235,68 @@ test("agent-browser's back and forward wait like a click and are refused on a pa
     expect(await back.settled()).toEqual({ type: 'go' });
 
     emit(documentResponse('S1', 'T1', 'L2', 'https://shop.pl/blocked', 403));
+    clock.advance(GRACE);
     expect(await run.gate(input('Runtime.evaluate', { expression: 'history.forward()' }))).toMatchObject({
         type: 'refuse',
     });
 });
 
+test("a block the page gets past within the grace never counts, and the site's commands go meanwhile", async () => {
+    const { run, clock, emit, logs } = setup();
+    emit(pageUrl('T1', 'https://shop.pl/'));
+    // Kasada: a 429 interstitial solves its proof of work and reloads, twice here.
+    emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 429));
+    clock.advance(5 * SECOND);
+    const click = input('Input.dispatchMouseEvent', { type: 'mousePressed' });
+    expect(await track(run.gate(click)).settled()).toEqual({ type: 'go' });
+    emit(documentResponse('S1', 'T1', 'L2', 'https://shop.pl/', 429));
+    clock.advance(5 * SECOND);
+    emit(documentResponse('S1', 'T1', 'L3', 'https://www.shop.pl/', 200));
+
+    clock.advance(GRACE);
+    expect(await track(run.gate(click)).settled()).toEqual({ type: 'go' });
+    expect(await track(run.gate(navigate('https://shop.pl/'))).settled()).toEqual({ type: 'go' });
+    expect(logs.filter(log => log.message === 'A site showed a block')).toEqual([]);
+    expect(logs.filter(log => log.message === 'A site let the browser past its block').map(log => log.data)).toEqual([
+        { site: 'shop.pl', reason: 'status 429' },
+    ]);
+});
+
+test("a block not got past within the grace counts from its end, and another site's document does not get past it", async () => {
+    const { run, clock, emit, logs } = setup();
+    emit(pageUrl('T1', 'https://shop.pl/'));
+    emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 429));
+    emit(documentResponse('S1', 'T1', 'L2', 'https://other.pl/', 200));
+    clock.advance(GRACE - 1);
+    expect(await track(run.gate(navigate('https://shop.pl/'))).settled()).toEqual({ type: 'go' });
+
+    clock.advance(1);
+    expect(await run.gate(navigate('https://shop.pl/'))).toMatchObject({ type: 'refuse' });
+    expect(await track(run.gate(navigate('https://other.pl/'))).settled()).toEqual({ type: 'go' });
+    // A real document after the grace is too late.
+    emit(documentResponse('S1', 'T1', 'L3', 'https://shop.pl/', 200));
+    expect(await run.gate(navigate('https://shop.pl/'))).toMatchObject({ type: 'refuse' });
+    expect(logs.filter(log => log.message === 'A site showed a block').map(log => log.data)).toEqual([
+        { site: 'shop.pl', reason: 'status 429', recentBlocks: 1 },
+    ]);
+});
+
 test('a trailing root dot names the same site', async () => {
-    const { run, emit } = setup();
+    const { run, clock, emit } = setup();
     emit(pageUrl('T1', 'https://shop.pl/'));
     emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 403));
+    clock.advance(GRACE);
 
     expect(await run.gate(navigate('https://shop.pl./'))).toMatchObject({ type: 'refuse' });
 });
 
 test("a run attached after another keeps the sites' slots and blocks, but none of the pages; a detached run forgets its pages", async () => {
     const { pace, run, clock, emit } = setup();
-    emit(pageUrl('T1', 'https://shop.pl/'));
-    emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 200));
     emit(pageUrl('T3', 'https://blocked.pl/'));
     emit(documentResponse('S3', 'T3', 'L2', 'https://blocked.pl/', 403));
+    clock.advance(GRACE);
+    emit(pageUrl('T1', 'https://shop.pl/'));
+    emit(documentResponse('S1', 'T1', 'L1', 'https://shop.pl/', 200));
     run.detach();
     const click = input('Input.dispatchMouseEvent', { type: 'mousePressed' });
     // The page's URL is gone, so a click on it acts on no known site.

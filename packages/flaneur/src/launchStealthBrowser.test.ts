@@ -697,7 +697,7 @@ test('a browser exit closes every client socket', async () => {
 }, 30_000);
 
 test('a held command keeps its session order, and after a block the site is refused with the reason', async () => {
-    const browser = await startBrowser({ pace: createSitePace() });
+    const browser = await startBrowser({ pace: createSitePace({ blockGraceMs: 0 }) });
     const client = connectClient(browser);
     const sessionId = await attachClient(client, await createTarget(client));
     await servePages(
@@ -727,7 +727,7 @@ test('a held command keeps its session order, and after a block the site is refu
 }, 30_000);
 
 test("a site's block outlives the browser: the next one launched with the same pace refuses it too", async () => {
-    const pace = createSitePace();
+    const pace = createSitePace({ blockGraceMs: 0 });
     const first = await startBrowser({ pace });
     const client = connectClient(first, 'group-a');
     const sessionId = await attachClient(client, await createTarget(client));
