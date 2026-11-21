@@ -68,6 +68,8 @@ browser: Runtime stays off, no client code runs in a page's own world, no bindin
 - What D8 costs, Playwright pays too: `evaluate` sees the DOM but not the page's globals; `exposeFunction`,
   `exposeBinding`, console and `pageerror` events are out; `addInitScript` runs in an isolated world;
   `browser.newContext()` fails, as browser contexts are the proxy's. The refusals come at once, with the reason.
+  `page.setContent()` is the exception: it waits for a `console.debug` of its own, which no client gets, and the proxy
+  cannot tell its evaluation from any other, so it hangs until its timeout.
 - With `--chrome own`, cookie and permission methods of the context fail, as `chrome.debugger` reaches tabs only, and
   one client drives a tab at a time.
 - A popup reaches Playwright already running, not held for it as Chrome's own auto-attach would hold it; the lifecycle

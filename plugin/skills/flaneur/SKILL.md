@@ -94,7 +94,9 @@ await browser.close(); // only disconnects: the pages stay open for the next scr
   (`userAgent`, `locale`, `viewport`) fail.
 - A later script sees the pages an earlier one left, the one used last first: continue where you stopped.
 - `evaluate` sees the page's DOM, not its JavaScript globals, and the page never sees yours. `exposeFunction`,
-  `exposeBinding`, `console` and `pageerror` events do not work; `worker.evaluate` fails.
+  `exposeBinding`, `console` and `pageerror` events do not work; `worker.evaluate` fails; download events never come.
+- `page.setContent()` hangs until its timeout (it waits for a console message): open your HTML with
+  `page.goto('data:text/html,' + encodeURIComponent(html))` instead.
 - With `--chrome own`, `context.cookies()`, `storageState()` and `grantPermissions()` fail, and a tab another client
   drives is not yours.
 - The pace holds `goto` too: a wait of a few seconds is the protection, not a hang.

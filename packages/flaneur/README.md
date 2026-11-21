@@ -163,6 +163,8 @@ What does not, because page scripts must never observe the client ([The price of
 - `browser.newContext()` and `browser.newPage()`: there is one profile, so use `browser.contexts()[0]`; context
   options such as `userAgent` or `locale` come with a new context, so they are out too;
 - `worker.evaluate` fails; download events never fire;
+- `page.setContent()` waits for a console message of its own, so it hangs until its timeout: `goto` a `data:text/html`
+  URL instead;
 - with `--chrome own`: the context's cookie and permission methods (`cookies()`, `storageState()`,
   `grantPermissions()`), which need the browser target, and a tab another client already drives.
 

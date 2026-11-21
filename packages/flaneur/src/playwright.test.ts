@@ -88,6 +88,45 @@ afterAll(async () => {
 }, TIMEOUT_MS);
 
 test(
+    'checks, selects, hovers, presses, answers a dialog and waits for a function',
+    async () => {
+        await withPlaywright(served.endpoint, async browser => {
+            const context = browser.contexts()[0];
+            assert(context, 'connectOverCDP gives the default context');
+            const page = await context.newPage();
+            try {
+                // Not `setContent`: it waits for a console message of its own, which never reaches a client.
+                await page.goto(
+                    `data:text/html,${encodeURIComponent(`
+                    <label><input type="checkbox" id="agree"> Agree</label>
+                    <select id="size"><option>S</option><option>M</option></select>
+                    <button id="hover" onmouseenter="this.textContent = 'Hovered'">Hover me</button>
+                    <input id="keys" onkeydown="if (event.key === 'Enter') this.value = 'entered'">
+                    <button id="ask" onclick="this.textContent = confirm('Sure?') ? 'Yes' : 'No'">Ask</button>`)}`,
+                );
+
+                await page.getByLabel('Agree').check();
+                await page.locator('#size').selectOption('M');
+                await page.locator('#hover').hover();
+                await page.locator('#keys').press('Enter');
+                page.once('dialog', dialog => void dialog.accept());
+                await page.locator('#ask').click();
+                await page.waitForFunction("document.querySelector('#ask').textContent === 'Yes'");
+                const handle = await page.evaluateHandle("document.querySelector('#size')");
+
+                expect(await page.getByLabel('Agree').isChecked()).toBe(true);
+                expect(await handle.asElement()?.inputValue()).toBe('M');
+                expect(await page.locator('#hover').textContent()).toBe('Hovered');
+                expect(await page.locator('#keys').inputValue()).toBe('entered');
+            } finally {
+                await page.close();
+            }
+        });
+    },
+    TIMEOUT_MS,
+);
+
+test(
     'drives the default context: locators, fill, evaluate, screenshot, ariaSnapshot, route, popup and frames',
     async () => {
         await withPlaywright(served.endpoint, async browser => {
