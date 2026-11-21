@@ -20,8 +20,8 @@ import { serveStealthBrowser } from './serveStealthBrowser.js';
  * agent-browser, the pinned release, over flaneur's endpoint with the human input on, against a page whose own script
  * writes down every trace a site's sensor could see of the agent: attribute changes, untrusted events, focus with no
  * pointer or key before it, input with no key, a scroll with no wheel. The browser is Playwright's Chromium, headless
- * and without the sandbox, which CI runners do not allow. agent-browser is downloaded once into the temp folder; with
- * no network (or no build for the platform) the tests are skipped.
+ * and without the sandbox, which CI runners do not allow. agent-browser is downloaded once into the temp folder; the
+ * tests run on every platform with a pinned build, and a failed download fails them rather than hiding them.
  */
 const AGENT_BROWSER_VERSION = '0.43.0';
 /** The release's builds by `${process.platform}-${process.arch}`, with their SHA-256 as the release lists them. */
@@ -82,10 +82,9 @@ const DETECTOR_SCRIPT = `
         write();
     }).observe(document, { attributes: true, subtree: true });`;
 
-const executable = await installAgentBrowser().catch((error: unknown) => {
-    console.warn('agent-browser is not available, its tests are skipped:', error);
-    return undefined;
-});
+/** agent-browser ships no build pinned here for this platform (Windows): its tests do not apply. */
+const unsupported = AGENT_BROWSER_BUILDS[`${process.platform}-${process.arch}`] == null;
+const executable = unsupported ? undefined : await installAgentBrowser();
 
 let site: { server: Server; url: string };
 let served: StealthBrowserServer;
@@ -111,7 +110,7 @@ afterAll(async () => {
     await rm(userDataDir, { recursive: true, force: true });
 }, TIMEOUT_MS);
 
-test.skipIf(executable == null)(
+test.skipIf(unsupported)(
     'snapshot and find mark no element on the page, and still find the element',
     async () => {
         const agent = openAgent();
@@ -132,7 +131,7 @@ test.skipIf(executable == null)(
     TIMEOUT_MS,
 );
 
-test.skipIf(executable == null)(
+test.skipIf(unsupported)(
     "fill, type, focus and scrolls reach the page as a hand's clicks, keys and wheel, with no script's events",
     async () => {
         const agent = openAgent();
