@@ -72,8 +72,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      # The own-Chrome tests run Chrome with a window, as in build.yml, so they need an X server on the runner.
       - name: Tests
-        run: bun run tests:full
+        run: xvfb-run --auto-servernum bun run tests:full
 
       # Also checks the tarball against npm: the tests ran on the pinned nzyme source, users install
       # `@nzyme/*` from npm, and the release stops when the two differ or a version is not on npm.
