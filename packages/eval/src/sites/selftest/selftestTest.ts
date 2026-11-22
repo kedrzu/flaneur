@@ -34,24 +34,32 @@ export const selftestTest = sitesTest.extend<object, SelftestWorkerFixtures>({
     selftestOrigin: [
         // Playwright wants a destructured first argument; `runner` is a plain value, so depending on it sets nothing up.
         async ({ runner: _runner }, use) => {
-            const server = createServer((request, response) => {
-                serveFile(request, response).catch((error: unknown) => {
-                    response.writeHead(500).end(String(error));
-                });
-            });
-            await new Promise<void>(resolve => {
-                server.listen(0, '127.0.0.1', resolve);
-            });
-            const address = server.address();
-            assert(address != null && typeof address === 'object', 'the selftest server has no port');
-            await use(`http://127.0.0.1:${address.port}`);
-            await new Promise(resolve => {
-                server.close(resolve);
-            });
+            await serveSelftestPages(use);
         },
         { scope: 'worker' },
     ],
 });
+
+/**
+ * Serves the selftest's pages on `127.0.0.1` while `use` runs, for a worker fixture.
+ * @util
+ */
+export async function serveSelftestPages(use: (origin: string) => Promise<void>) {
+    const server = createServer((request, response) => {
+        serveFile(request, response).catch((error: unknown) => {
+            response.writeHead(500).end(String(error));
+        });
+    });
+    await new Promise<void>(resolve => {
+        server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    assert(address != null && typeof address === 'object', 'the selftest server has no port');
+    await use(`http://127.0.0.1:${address.port}`);
+    await new Promise(resolve => {
+        server.close(resolve);
+    });
+}
 
 async function serveFile(request: IncomingMessage, response: ServerResponse) {
     const { pathname } = new URL(request.url ?? '/', 'http://127.0.0.1');

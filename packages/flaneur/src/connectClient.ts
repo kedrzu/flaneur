@@ -11,6 +11,7 @@ import { createClientAutoAttach } from './createClientAutoAttach.js';
 import { createExecutionContexts } from './createExecutionContexts.js';
 import type { HumanInputRun } from './createHumanInput.js';
 import { createIsolatedWorlds } from './createIsolatedWorlds.js';
+import { createWorldMarks } from './createWorldMarks.js';
 import type { SessionOriginator, SessionRegistry } from './createSessionRegistry.js';
 import type { SitePaceRun } from './createSitePace.js';
 import { readTargetInfo } from './readTargetInfo.js';
@@ -106,6 +107,7 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
     const { clientId, group, data, socket, send, registry, brand, policy, pace, input, logger } = params;
     const originator: SessionOriginator = { type: 'client', clientId };
     const worlds = createIsolatedWorlds(send);
+    const marks = createWorldMarks(send, worlds);
     const contexts = createExecutionContexts(send, sendEvent);
     const autoAttach = createClientAutoAttach({
         listPages,
@@ -277,16 +279,40 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
      * reply answering the client. When the input fails half way, the client gets the failure.
      */
     async function performInput(decision: StealthDecision): Promise<StealthDecision> {
-        if (input == null || decision.type !== 'forward') {
+        if (input == null) {
             return decision;
         }
+        switch (decision.type) {
+            case 'forward':
+                return perform(input, decision, command => ({ type: 'forward', ...command }));
+            case 'isolate': {
+                // An evaluation in the proxy's world may be a scroll the hand does instead (`findHandAction`).
+                const { call } = decision;
+                if (call.method !== 'Runtime.evaluate') {
+                    return decision;
+                }
+                const command = { method: call.method, params: call.params, sessionId: call.sessionId };
+                return perform(input, command, performed => ({
+                    type: 'isolate',
+                    call: { ...call, params: performed.params },
+                }));
+            }
+            default:
+                return decision;
+        }
+    }
+
+    async function perform(
+        run: Pick<HumanInputRun, 'perform'>,
+        command: CdpRequest,
+        toDecision: (performed: CdpRequest) => StealthDecision,
+    ): Promise<StealthDecision> {
         try {
-            const command = await input.perform(decision, sendOnBehalf);
-            return { type: 'forward', ...command };
+            return toDecision(await run.perform(command, sendOnBehalf));
         } catch (error) {
-            logger.debug('Input could not be performed', { error, method: decision.method });
+            logger.debug('Input could not be performed', { error, method: command.method });
             const reason = error instanceof Error ? error.message : 'the input failed';
-            return { type: 'reject', message: `${decision.method}: ${reason}` };
+            return { type: 'reject', message: `${command.method}: ${reason}` };
         }
     }
 
@@ -299,10 +325,14 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
             return Promise.reject(new Error('the client is gone'));
         }
         const decision = checkStealthRequest({ method, params: commandParams, sessionId }, contexts);
-        if (decision.type !== 'forward') {
-            return Promise.reject(new Error(`${method} cannot be sent for the client`));
+        switch (decision.type) {
+            case 'forward':
+                return send(decision.method, decision.params, decision.sessionId);
+            case 'isolate':
+                return worlds.send(decision.call);
+            default:
+                return Promise.reject(new Error(`${method} cannot be sent for the client`));
         }
-        return send(decision.method, decision.params, decision.sessionId);
     }
 
     /**
@@ -431,6 +461,12 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
                 return {};
             case 'Target.getTargets':
                 return filterTargets(await send(method, forwardParams));
+            case 'DOM.querySelector':
+            case 'DOM.querySelectorAll':
+                // Data attributes a client's code set stay in its world (`WORLD_PRELUDE`); its DOM queries see them.
+                return marks.query(method, forwardParams, sessionId);
+            case 'DOM.describeNode':
+                return marks.describeNode(forwardParams, sessionId);
             case 'Target.createTarget':
                 return createTarget(forwardParams);
             case 'Target.attachToTarget':
@@ -631,6 +667,7 @@ export function connectClient<D>(params: ConnectClientParams<D>): CdpClient {
         if (event.method === 'Target.detachedFromTarget' && typeof eventParams['sessionId'] === 'string') {
             contexts.forget(eventParams['sessionId']);
             worlds.forget(eventParams['sessionId']);
+            marks.forget(eventParams['sessionId']);
         }
         if (event.sessionId != null) {
             if (isOwnSession(event.sessionId)) {

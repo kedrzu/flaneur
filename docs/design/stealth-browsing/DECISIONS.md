@@ -144,6 +144,21 @@ language, and anything later. Vendors document client-side JS fingerprinting fir
 > build the input layer now rather than wait for the eval to show a site reacting
 > (`packages/flaneur/src/createHumanInput.ts`, on by default in the CLI).
 
+> **Checked 2026-11-21:** agent-browser v0.43.0 over flaneur with the input layer on, on a local page recording what a
+> sensor sees: `fill`, `type` and `focus` call `this.focus()` from script, a focus with no pointer or key event before
+> it; `fill` then clears the field with `select()`, `value = ''` and an untrusted `input` event (`isTrusted: false`, no
+> `inputType`); `scroll` runs `window.scrollBy`, `scrollintoview` and `click` on a CSS selector out of view
+> `scrollIntoView()`: the page scrolls with no wheel event (`cli/src/native/interaction.rs`, `element.rs`). Clicks,
+> `press`, `keyboard type`, `type`'s text and a click on an `@ref` out of view were already a hand's.
+
+**Script calls a hand makes (2026-11-21).** The input layer recognises a client's script call that does what a hand
+does, by agent-browser's exact source (`packages/flaneur/src/findHandAction.ts`), and does it by hand, answering the
+call as the empty script would: a text field is focused by a click (to the right of its text, so the caret lands at the
+end) and cleared by the platform's select-all chord and Backspace; `scrollIntoView` and `scrollBy` are wheeled; a
+`click` evaluation that would scroll its element into view first finds the element with the scroll taken out, wheels it
+into view, then runs as sent. A call the hand would not just do with a click (focusing a button or a select) runs as
+sent. It holds while the input layer is on, as the rest of the layer does.
+
 **Rejected.**
 
 - Waiting for the eval before building the input layer — the measurement-first rule of 2026-11-15; the owner
@@ -324,6 +339,19 @@ it as the first init script of each world a client's init scripts use, on that s
 the page's prototype stays native. Only those internal prefixes: an event a client dispatches on purpose
 (`page.dispatchEvent`) reaches the page. A client's `Page.navigate` goes without its `referrer` and `referrerPolicy`,
 so it is consistently a typed one. Both are stealth rules no policy can lift.
+
+> **Checked 2026-11-21:** agent-browser v0.43.0 over flaneur, on a local page whose own script records what a sensor
+> sees: every `snapshot` sets `data-__ab-ci` on each element it finds clickable by its cursor or `onclick` and removes
+> it a few milliseconds later (`find_cursor_interactive_elements`, `cli/src/native/snapshot.rs`), and `find` (by text,
+> label, `first`…) sets `data-agent-browser-located="true"` on its target and keeps it through the whole action
+> (`handle_find`, `actions.rs`). A page's `MutationObserver` sees both, and its click handler sees the second on the
+> clicked element.
+
+**Data attributes (2026-11-21).** A `data-*` attribute a client's code sets in an isolated world stays in that world
+(`WORLD_PRELUDE`): the world's attribute methods and its `querySelector`/`querySelectorAll` see it, the page's DOM never
+holds it, and the proxy answers a client's `DOM.querySelector`, `DOM.querySelectorAll` and `DOM.describeNode` from the
+same marks (`packages/flaneur/src/createWorldMarks.ts`). A data attribute is the page's own state; a client changes it
+only to mark an element for itself. A stealth rule no policy can lift.
 
 **Consequences.** The agent loses agent-browser's `console`, `errors` and `expose`, and cannot read the page's JS
 globals (isolated worlds share the DOM, not globals). Playwright works through context events the proxy emulates

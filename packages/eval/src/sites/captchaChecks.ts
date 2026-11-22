@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises';
+
 import { expect, test } from 'playwright/test';
 import type { Page, TestInfo } from 'playwright/test';
 
@@ -30,7 +32,8 @@ const CHECKBOX_POLL_MS = 250;
 
 const TWOCAPTCHA_V3_URL = 'https://2captcha.com/demo/recaptcha-v3';
 const ANTCPT_V3_URL = 'https://antcpt.com/eng/information/demo-form/recaptcha-3-test-score.html';
-const RECAPTCHA_V2_URL = 'https://www.google.com/recaptcha/api2/demo';
+/** Google's reCAPTCHA v2 demo. */
+export const RECAPTCHA_V2_URL = 'https://www.google.com/recaptcha/api2/demo';
 const NOWSECURE_URL = 'https://nowsecure.nl/';
 
 /** 2captcha's reCAPTCHA v3 demo: "Check" verifies a fresh token on its server and shows the response, score included. */
@@ -78,8 +81,7 @@ const antcptV3: CaptchaCheck = {
 
 /**
  * Google's reCAPTCHA v2 demo: the checkbox ticks for a browser it trusts and opens an image challenge otherwise. The
- * challenge is not solved and the form is not submitted. The checkbox frame on the page is itself a reCAPTCHA marker,
- * so the steps after the page load cannot run as journey steps, which fail on any marker; they record their outcome.
+ * challenge is not solved and the form is not submitted.
  */
 const recaptchaV2: CaptchaCheck = {
     name: 'Google reCAPTCHA v2 checkbox',
@@ -89,49 +91,13 @@ const recaptchaV2: CaptchaCheck = {
         await step('open the demo', async () => {
             await page.goto(RECAPTCHA_V2_URL);
         });
-        const name = 'tick the checkbox';
-        await test.step(name, async () => {
-            const checkbox = page.frameLocator('iframe[src*="api2/anchor"]').locator('#recaptcha-anchor');
-            const challenge = page.locator('iframe[src*="api2/bframe"]');
-            let ticked = false;
-            try {
-                await checkbox.click();
-                const deadline = Date.now() + CHECKBOX_TIMEOUT_MS;
-                while (Date.now() < deadline) {
-                    if (await challenge.isVisible()) {
-                        throw fail({
-                            class: 'challenged',
-                            vendor: 'reCAPTCHA',
-                            evidence: 'image challenge',
-                            step: name,
-                        });
-                    }
-                    if ((await checkbox.getAttribute('aria-checked')) === 'true') {
-                        ticked = true;
-                        break;
-                    }
-                    await page.waitForTimeout(CHECKBOX_POLL_MS);
-                }
-            } catch (error) {
-                if (error instanceof JourneyFailure) {
-                    throw error;
-                }
-                const message = error instanceof Error ? error.message : String(error);
-                throw fail({ class: 'broken', evidence: message.split('\n')[0] ?? message, step: name }, error);
-            }
-            if (!ticked) {
-                throw fail({
-                    class: 'broken',
-                    evidence: `the checkbox was neither ticked nor challenged in ${CHECKBOX_TIMEOUT_MS / 1000} s`,
-                    step: name,
-                });
-            }
+        const checkbox = page.frameLocator('iframe[src*="api2/anchor"]').locator('#recaptcha-anchor');
+        const challenge = page.locator('iframe[src*="api2/bframe"]');
+        await tickRecaptchaCheckbox(testInfo, {
+            click: () => checkbox.click(),
+            isChallenged: () => challenge.isVisible(),
+            isTicked: async () => (await checkbox.getAttribute('aria-checked')) === 'true',
         });
-
-        function fail(outcome: JourneyOutcome, cause?: unknown) {
-            recordOutcome(testInfo, outcome);
-            return new JourneyFailure(outcome, { cause });
-        }
     },
 };
 
@@ -149,6 +115,60 @@ const nowsecure: CaptchaCheck = {
         });
     },
 };
+
+/** reCAPTCHA v2's checkbox as a driver sees it. */
+export interface RecaptchaCheckbox {
+    click(): Promise<void>;
+    /** Whether the image challenge is showing. */
+    isChallenged(): Promise<boolean>;
+    isTicked(): Promise<boolean>;
+}
+
+/**
+ * Clicks reCAPTCHA v2's checkbox as the step `tick the checkbox` and waits for its verdict: ticked passes, an image
+ * challenge fails the test as `challenged`, neither in `CHECKBOX_TIMEOUT_MS` as `broken`. The checkbox frame on the
+ * page is itself a reCAPTCHA marker, so the step cannot be a journey step, which fails on any marker; it records its
+ * outcome itself.
+ * @util
+ */
+export async function tickRecaptchaCheckbox(testInfo: TestInfo, checkbox: RecaptchaCheckbox) {
+    const name = 'tick the checkbox';
+    await test.step(name, async () => {
+        let ticked = false;
+        try {
+            await checkbox.click();
+            const deadline = Date.now() + CHECKBOX_TIMEOUT_MS;
+            while (Date.now() < deadline) {
+                if (await checkbox.isChallenged()) {
+                    throw fail({ class: 'challenged', vendor: 'reCAPTCHA', evidence: 'image challenge', step: name });
+                }
+                if (await checkbox.isTicked()) {
+                    ticked = true;
+                    break;
+                }
+                await sleep(CHECKBOX_POLL_MS);
+            }
+        } catch (error) {
+            if (error instanceof JourneyFailure) {
+                throw error;
+            }
+            const message = error instanceof Error ? error.message : String(error);
+            throw fail({ class: 'broken', evidence: message.split('\n')[0] ?? message, step: name }, error);
+        }
+        if (!ticked) {
+            throw fail({
+                class: 'broken',
+                evidence: `the checkbox was neither ticked nor challenged in ${CHECKBOX_TIMEOUT_MS / 1000} s`,
+                step: name,
+            });
+        }
+    });
+
+    function fail(outcome: JourneyOutcome, cause?: unknown) {
+        recordOutcome(testInfo, outcome);
+        return new JourneyFailure(outcome, { cause });
+    }
+}
 
 /** The checks `captcha.spec.ts` runs, one test each, in this order. */
 export const CAPTCHA_CHECKS: readonly CaptchaCheck[] = [twocaptchaV3, antcptV3, recaptchaV2, nowsecure];

@@ -94,8 +94,11 @@ export const booking = defineJourney({
     },
 });
 
-/** The local date `days` from today as `YYYY-MM-DD`, the picker's `data-date`. */
-function formatDate(days: number) {
+/**
+ * The local date `days` from today as `YYYY-MM-DD`, the picker's `data-date`.
+ * @__NO_SIDE_EFFECTS__
+ */
+export function formatDate(days: number) {
     const date = new Date();
     date.setDate(date.getDate() + days);
     const month = String(date.getMonth() + 1).padStart(2, '0');
