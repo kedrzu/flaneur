@@ -1,6 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { openProducts } from '../utils/openProducts.js';
 import { readPage } from '../utils/readPage.js';
 import { submitSearch } from '../utils/submitSearch.js';
@@ -17,7 +19,10 @@ export const walmartLong = defineJourney({
     url: URL,
     tags: ['@long'],
     run: async (page, step) => {
-        const products = openProducts(page, 'a[href*="/ip/"]');
+        // The results' own card links (`from=/search`), not a colour swatch's, nor a sponsored tile's, which goes
+        // through an ad redirect (`/sp/track?…/ip/…`) and once left the page standing for 30 s after the click. The card
+        // link spans the card, its swatches over its centre.
+        const products = openProducts(page, 'a[href^="/ip/"][href*="from=/search"]', { clickImage: true });
 
         await step('open the home page', async () => {
             await page.goto(URL);
@@ -59,15 +64,20 @@ export const walmartLong = defineJourney({
             await expect(page).toHaveURL(/[?&]page=2/);
         });
         await step('add to cart', async () => {
-            await page
-                .getByRole('button', { name: /^Add to cart - / })
-                .first()
-                .click();
+            await clickResult(page.getByRole('button', { name: /^Add to cart - / }).first());
             await expect(page.getByRole('button', { name: /Cart contains [1-9]/ })).toBeVisible();
         });
         await step('open the cart', async () => {
             await page.getByRole('button', { name: /Cart contains [1-9]/ }).click();
             await expect(page).toHaveURL(/\/cart/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

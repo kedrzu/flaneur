@@ -1,6 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.amazon.pl/';
@@ -26,7 +28,7 @@ export const amazon = defineJourney({
             await expect(page).toHaveURL(/\/s\?k=/);
         });
         await step('open a product', async () => {
-            await page.locator('[data-component-type="s-search-result"] a[href*="/dp/"]').first().click();
+            await clickResult(page.locator('[data-component-type="s-search-result"] a[href*="/dp/"]').first());
             await expect(page).toHaveURL(/\/dp\//);
         });
         await step('add to cart', async () => {
@@ -43,12 +45,24 @@ export const amazon = defineJourney({
             { optional: true },
         );
         await step('see the cart confirmation', async () => {
-            await expect(page.getByRole('heading', { name: /Dodano do koszyka/ }).first()).toBeVisible();
+            // Once the eval profile's cart holds the seller's limit (10 per customer), the add answers with the limit
+            // instead: the cart still holds the product.
+            const added = page.getByRole('heading', { name: /Dodano do koszyka/ });
+            const atLimit = page.getByText(/szt\. na klienta/);
+            await expect(added.or(atLimit).first()).toBeVisible();
         });
         await step('open the cart', async () => {
             // The header's cart link; a hidden "skip to the cart" link shares its name.
             await page.locator('#nav-cart').click();
             await expect(page).toHaveURL(/\/cart/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

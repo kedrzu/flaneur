@@ -3,6 +3,8 @@ import { expect } from 'playwright/test';
 import { assert } from '@nzyme/utils/assert.js';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.nike.com/pl/';
@@ -37,7 +39,11 @@ export const nike = defineJourney({
         });
         await step('open a product', async () => {
             // The card's overlay link lies under its image, which has a link of its own: a person clicks the image.
-            await page.locator('a.product-card__img-link-overlay[href*="/pl/t/"]').first().click();
+            // The header's menu opens over the results on the pointer's way and stays open, Escape or not; its scrim
+            // closes it on a click. It still opened again on the click's way in most runs of 2026-11-22: open.
+            await clickResult(page.locator('a.product-card__img-link-overlay[href*="/pl/t/"]').first(), {
+                menuBackdrop: page.getByTestId('scrim'),
+            });
             await expect(page).toHaveURL(/\/pl\/t\//);
         });
         await step('choose a size', async () => {
@@ -62,5 +68,13 @@ export const nike = defineJourney({
                 .click();
             await expect(page).toHaveURL(/\/cart/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

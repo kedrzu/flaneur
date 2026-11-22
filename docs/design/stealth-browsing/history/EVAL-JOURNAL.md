@@ -84,7 +84,51 @@ attempts passed and none was challenged or refused. leboncoin.fr passed 2 of 2. 
 - amazon.pl 1/2: the cart confirmation.
 - walmart.com long 1/2: page 2.
 
-None of these was checked on its screenshot yet.
+Checked on their screenshots and call logs the next morning; none was a block, each a page the journey did not expect:
+
+- homedepot.com: the first product link was a hidden "recently viewed" pod of a product earlier runs opened
+  (`element is not visible` 50 times); the journey takes visible links only.
+- lowes.com: the department bar's Appliances flyout covered the results; the pointer, moving down from the search box
+  at the top of the page, crosses the bar. The same in the next runs at nike.com (the header's menu) and chewy.com
+  ("Not in the U.S.?" with an overlay, from the "USA" item beside the search button). One class: the human input's
+  path from the header to a result crosses header items whose hover opens a cover. Every journey now clicks a result
+  through `clickResult`, which first takes the pointer down to the bottom of the view under the result, rests a second,
+  then comes up to it. Where a menu's backdrop belongs to the header and covers the page (nike.com, vinted.pl,
+  chewy.com), it stays open whatever the pointer does, Escape or not: `clickResult` clicks the backdrop when it shows, as
+  a person clicks beside a menu, and vinted.pl opens an item further down, away from the header. nike.com stays open:
+  its menu opened again on the click's way in most runs, the first card or a lower one.
+- xcite.com: the cart held 3 of the air fryer, its cap, so the product's button was disabled; the cart would not take
+  one less ("decrease quantity" and "Remove" changed nothing, "Checkout" disabled too, cause not known). The journey
+  goes to the cart when the button stays disabled.
+- amazon.pl: the cart held 10 of the mug, the seller's limit per customer; the add answered "Wystąpił błąd" with the
+  limit. The journey accepts the limit as well as "Dodano do koszyka".
+- kohls.com: the cart's page did not commit within the click's 30 s (usually 2 s); the failure's screenshot is the
+  cart's blank page still loading. The click gets 60 s, as a page load does.
+- fiverr.com: a "Create a new account" dialog, with no close button, over the results, and the cookie banner; what
+  opened the dialog is not known (24 s of scrolling the results did not). The journey accepts cookies.
+- walmart.com long: the page stood mid-list with "Next Page" never reached; no cause found. In the next run it failed
+  on the product instead: the first `/ip/` link was a sponsored tile's ad redirect (`/sp/track?…`), which left the page
+  standing for 30 s, and a result's own card link has its colour swatches over its centre (`intercepts pointer
+  events`). Both Walmart journeys now click a result's card link, on its image.
+- ocado.com (new): every product of the first row was in the trolley from earlier runs, so the "Add … to trolley"
+  buttons had become quantity steppers; the journey presses "Increase quantity" then.
+- gamestop.com (new, 0/2 in the next run): the cart held 10 items, its cap; `Cart-AddProduct` answered 200 and nothing
+  was added or said. With one removed the add went through, so the journey does that when an add shows nothing. Back on
+  the product the consent banner covered "Add to Cart"; the journey accepts it.
+
+Behind xcite.com, amazon.pl, gamestop.com, notino.pl (6 of the cream, an add showed nothing), lego.com ("Limit został
+przekroczony", and the first "Dodaj do Koszyka" then a recommendation's) and ocado.com is one class too: the eval
+profile is persistent, and every run added the same product to the guest cart until the site's cap. Every cart journey
+(both projects) now ends with `emptyCart`, which clicks the cart's remove controls (or "one less" where a line has no
+remove) until none is left; gamestop.com, notino.pl and lego.com first empty a cart left full by an earlier run
+(`makeRoomInCart`). zara.com's sweater came in "S-M"/"L-XL" sizes, which the size pattern did not take.
+
+The full panel twice after these fixes (run `2026-11-22T10-09-51Z`): 90 of 102 passed. Challenged: 2captcha's
+reCAPTCHA v3 scored 0.1 once (0.8 in the morning), Google's v2 checkbox showed images once, leroymerlin.pl got
+DataDome's interstitial on the home page once, all after a day of about ten runs from one address. Four failures were
+the host's network dropping (`ERR_NETWORK_IO_SUSPENDED`, `ERR_NETWORK_CHANGED`); the rest led to the fixes above.
+
+Error messages now carry Playwright's call log into `error-context.md`, which had only the first line.
 
 ### Evening: journeys that never ran past a point
 

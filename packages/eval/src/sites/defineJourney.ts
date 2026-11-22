@@ -105,12 +105,20 @@ const AFTER_JOURNEY = 'after the journey';
 /** How long reading the page's facts may take; a page stuck in a dialog or a navigation never answers. */
 const READ_FACTS_TIMEOUT_MS = 5000;
 
-/** A journey that failed, classified. */
+/**
+ * A journey that failed, classified. Its message carries the rest of the cause's message after the evidence line:
+ * Playwright's call log (what the action waited for, which element intercepted the click), which the report shows only
+ * for the error it was thrown with.
+ */
 export class JourneyFailure extends Error {
     readonly outcome: JourneyOutcome;
 
     constructor(outcome: JourneyOutcome, options?: ErrorOptions) {
-        super(`${outcome.class} in step "${outcome.step}": ${outcome.evidence}`, options);
+        const detail = options?.cause instanceof Error ? options.cause.message.split('\n').slice(1).join('\n') : '';
+        super(
+            `${outcome.class} in step "${outcome.step}": ${outcome.evidence}${detail === '' ? '' : `\n${detail}`}`,
+            options,
+        );
         this.name = 'JourneyFailure';
         this.outcome = outcome;
     }

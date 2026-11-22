@@ -15,6 +15,14 @@ export const fiverr = defineJourney({
         await step('open the home page', async () => {
             await page.goto(URL);
         });
+        await step(
+            'accept cookies',
+            async () => {
+                // The banner covers the bottom of the results.
+                await page.getByRole('dialog', { name: 'Privacy' }).getByRole('button', { name: 'Accept' }).click();
+            },
+            { optional: true },
+        );
         await step('search', async () => {
             await submitSearch(page.getByRole('searchbox', { name: 'Search for any service' }).first(), 'logo design');
             await expect(page).toHaveURL(/\/search\/gigs\?query=logo/);

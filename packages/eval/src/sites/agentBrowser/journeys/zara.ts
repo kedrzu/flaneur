@@ -2,6 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { AgentBrowser } from '../openAgentBrowser.js';
 import { defineAgentBrowserJourney } from '../defineAgentBrowserJourney.js';
+import { emptyCart } from '../emptyCart.js';
 import { submitSearch } from '../submitSearch.js';
 
 const URL = 'https://www.zara.com/pl/pl/';
@@ -46,7 +47,7 @@ export const zara = defineAgentBrowserJourney({
             await ab.click({ role: 'button', name: /^Dodaj (?!element do wishlist)/ });
         });
         await step('choose a size', async () => {
-            await ab.click({ role: 'button', name: /^(XS|S|M|L|XL)$/ });
+            await ab.click({ role: 'button', name: /^(XS|S|M|L|XL)(-(S|M|L|XL|XXL))?$/ });
             // The "DODANO DO KOSZYKA" dialog may be gone by the next snapshot; the header's count tells the add then.
             const deadline = Date.now() + CART_UPDATE_MS;
             while (!(await isAdded(ab, before))) {
@@ -65,13 +66,22 @@ export const zara = defineAgentBrowserJourney({
             await ab.click(dialogButton?.ref ?? { role: 'link', name: CART_LINK });
             await ab.waitForUrl(/\/shop\/cart/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(ab);
+            },
+            { optional: true },
+        );
     },
 });
 
-/** The number of products the header's cart link says the cart holds. */
+/** The number of products the header's cart link says the cart holds; an empty cart's link reads "Pusty koszyk". */
 async function readCartCount(ab: AgentBrowser) {
-    const link = await ab.findElement({ role: 'link', name: CART_LINK });
-    return Number(CART_LINK.exec(link.name)?.[1] ?? 0);
+    const { elements } = await ab.snapshot();
+    const link = elements.find(element => element.role === 'link' && CART_LINK.test(element.name));
+    return Number((link == null ? undefined : CART_LINK.exec(link.name)?.[1]) ?? 0);
 }
 
 /** Whether the snapshot shows the add: the cart dialog, or the header counting more than `before`. */

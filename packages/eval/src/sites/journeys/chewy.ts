@@ -1,6 +1,7 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
 import { typeText } from '../utils/typeText.js';
 
 const URL = 'https://www.chewy.com/';
@@ -21,12 +22,15 @@ export const chewy = defineJourney({
         });
         await step('open a product', async () => {
             // A result is a link holding the product's heading; the header's hidden gift-card links hold none.
-            await page
-                .getByRole('link')
-                .filter({ has: page.getByRole('heading', { level: 2 }) })
-                .filter({ hasNotText: 'Sponsored' })
-                .first()
-                .click();
+            await clickResult(
+                page
+                    .getByRole('link')
+                    .filter({ has: page.getByRole('heading', { level: 2 }) })
+                    .filter({ hasNotText: 'Sponsored' })
+                    .first(),
+                // The header's "USA" item opens "Not in the U.S.?" with an overlay over the page, which stays (2026-11-22).
+                { menuBackdrop: page.locator('.header__navigation-item__overlay') },
+            );
             await expect(page).toHaveURL(/\/dp\/\d+/);
         });
     },

@@ -1,6 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.sephora.pl/';
@@ -27,7 +29,7 @@ export const sephora = defineJourney({
         });
         await step('open a product', async () => {
             // The header's menus, inert until opened, link products too.
-            await page.getByRole('main').locator('a[href*="/p/"]').first().click();
+            await clickResult(page.getByRole('main').locator('a[href*="/p/"]').first());
             await expect(page).toHaveURL(/\/p\/.+\.html/);
         });
         await step('add to cart', async () => {
@@ -38,5 +40,13 @@ export const sephora = defineJourney({
             await page.getByRole('button', { name: 'Zobacz koszyk' }).click();
             await expect(page).toHaveURL(/\/koszyk/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

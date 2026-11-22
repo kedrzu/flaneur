@@ -1,4 +1,5 @@
 import { defineAgentBrowserJourney } from '../defineAgentBrowserJourney.js';
+import { emptyCart } from '../emptyCart.js';
 import { submitSearch } from '../submitSearch.js';
 
 const URL = 'https://www.otto.de/';
@@ -35,5 +36,13 @@ export const otto = defineAgentBrowserJourney({
             await ab.clickRole('button', 'Zum Warenkorb');
             await ab.waitForUrl(/\/order\/basket/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(ab);
+            },
+            { optional: true },
+        );
     },
 });

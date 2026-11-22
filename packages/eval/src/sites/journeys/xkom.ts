@@ -1,6 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.x-kom.pl/';
@@ -27,7 +29,7 @@ export const xkom = defineJourney({
             await expect(page.locator('#listing-container a[href*="/p/"]').first()).toBeVisible();
         });
         await step('open a product', async () => {
-            await page.locator('#listing-container a[href*="/p/"]').first().click();
+            await clickResult(page.locator('#listing-container a[href*="/p/"]').first());
             await expect(page).toHaveURL(/\/p\/\d+-/);
         });
         await step(
@@ -45,5 +47,13 @@ export const xkom = defineJourney({
             await page.getByRole('link', { name }).or(page.getByRole('button', { name })).first().click();
             await expect(page).toHaveURL(/\/koszyk/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

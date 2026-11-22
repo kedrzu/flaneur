@@ -1,6 +1,7 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.google.com/';
@@ -50,7 +51,7 @@ export const googleRepeated = defineJourney({
                 { optional: true },
             );
             await step(`open a result of ${search}`, async () => {
-                await page.locator('#search a:has(h3)').first().click();
+                await clickResult(page.locator('#search a:has(h3)').first());
                 await expect(page).not.toHaveURL(/google\.[a-z.]+\/search/);
             });
             await step(`back from the result of ${search}`, async () => {

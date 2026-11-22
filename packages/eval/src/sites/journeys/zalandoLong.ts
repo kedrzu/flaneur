@@ -1,6 +1,7 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { openProducts } from '../utils/openProducts.js';
 import { readPage } from '../utils/readPage.js';
 import { submitSearch } from '../utils/submitSearch.js';
@@ -98,5 +99,13 @@ export const zalandoLong = defineJourney({
                 .click();
             await expect(page.getByRole('heading', { name: /koszyk/i }).first()).toBeVisible();
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

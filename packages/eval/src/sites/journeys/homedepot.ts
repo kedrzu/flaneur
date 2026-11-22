@@ -1,6 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.homedepot.com/';
@@ -23,11 +25,13 @@ export const homedepot = defineJourney({
             await expect(page).toHaveURL(/searchRedirect=hammer|\/s\/hammer/);
         });
         await step('open a product', async () => {
-            await page
-                .locator('a[href*="/p/"]')
-                .filter({ hasText: /Hammer/ })
-                .first()
-                .click();
+            // The page also holds a hidden "recently viewed" strip of the products earlier runs opened.
+            await clickResult(
+                page
+                    .locator('a[href*="/p/"]')
+                    .filter({ hasText: /Hammer/, visible: true })
+                    .first(),
+            );
             await expect(page).toHaveURL(/\/p\//);
         });
         await step('add to cart', async () => {
@@ -39,5 +43,13 @@ export const homedepot = defineJourney({
             await expect(page).toHaveURL(/\/cart/);
             await expect(page.getByRole('heading', { name: /CART \([1-9]/ })).toBeVisible();
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

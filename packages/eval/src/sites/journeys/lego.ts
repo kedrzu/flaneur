@@ -1,6 +1,9 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
+import { makeRoomInCart } from '../utils/makeRoomInCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.lego.com/pl-pl';
@@ -42,8 +45,22 @@ export const lego = defineJourney({
             { optional: true },
         );
         await step('open a set', async () => {
-            await page.locator('a[href*="/product/"]').filter({ hasText: /Sokół/ }).first().click();
+            await clickResult(page.locator('a[href*="/product/"]').filter({ hasText: /Sokół/ }).first());
             await expect(page).toHaveURL(/\/product\//);
+        });
+        await step('make room in the cart', async () => {
+            // With the cart at the set's limit the set's button reads "Limit został przekroczony", and the first
+            // "Dodaj do Koszyka" is a recommendation's (2026-11-22). The journey empties the cart at its end, but one
+            // left full (by an earlier run, or a run that failed) is emptied first.
+            const limit = page.getByRole('button', { name: 'Limit został przekroczony' }).first();
+            await expect(limit.or(page.getByRole('button', { name: 'Dodaj do Koszyka' })).first()).toBeVisible();
+            if (await limit.isVisible()) {
+                await makeRoomInCart({
+                    cartLink: page.getByRole('link', { name: /^Koszyk \d+/ }).first(),
+                    cartUrl: /\/cart/,
+                    productUrl: /\/product\//,
+                });
+            }
         });
         await step('add to cart', async () => {
             await page.getByRole('button', { name: 'Dodaj do Koszyka' }).first().click();
@@ -54,5 +71,13 @@ export const lego = defineJourney({
             await expect(page).toHaveURL(/\/cart/);
             await expect(page.getByRole('heading', { name: /Mój koszyk \([1-9]/ })).toBeVisible();
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

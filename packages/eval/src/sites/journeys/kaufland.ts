@@ -1,6 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.kaufland.pl/';
@@ -48,7 +50,7 @@ export const kaufland = defineJourney({
         );
         await step('open a product', async () => {
             // The tile holds buttons of its own (a price badge opens a dialog): a person clicks the picture.
-            await page.locator('a[href*="/product/"] .product-image__wrapper').first().click();
+            await clickResult(page.locator('a[href*="/product/"] .product-image__wrapper').first());
             await expect(page).toHaveURL(/\/product\/\d+/);
         });
         await step('add to cart', async () => {
@@ -60,5 +62,13 @@ export const kaufland = defineJourney({
             await expect(page).toHaveURL(/\/checkout\/cart/);
             await expect(page.getByRole('heading', { name: /Mój koszyk \([1-9]/ })).toBeVisible();
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

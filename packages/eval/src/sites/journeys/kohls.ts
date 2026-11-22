@@ -2,9 +2,14 @@ import { expect } from 'playwright/test';
 import type { Page } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.kohls.com/';
+
+/** How long opening the cart may take: the suite's navigation timeout. */
+const CART_LOAD_MS = 60_000;
 
 /** Kohl's behind Akamai: a search, a product in a size, the guest cart; never the checkout. */
 export const kohls = defineJourney({
@@ -20,7 +25,7 @@ export const kohls = defineJourney({
             await expect(page).toHaveURL(/\/search\.jsp\?(.*&)?search=towels/);
         });
         await step('open a product', async () => {
-            await page.locator('a[href*="/product/prd-"]').first().click();
+            await clickResult(page.locator('a[href*="/product/prd-"]').first());
             await expect(details(page).getByRole('button', { name: 'Add to Cart' })).toBeVisible();
         });
         await step(
@@ -39,9 +44,19 @@ export const kohls = defineJourney({
             await expect(page.getByRole('heading', { name: 'Added to Cart for Shipping' })).toBeVisible();
         });
         await step('open the cart', async () => {
-            await page.getByRole('button', { name: 'View Cart' }).click();
+            // The cart's page once took over 30 s to commit (2026-11-21), and a click waits for the navigation it starts:
+            // it gets as long as a page load.
+            await page.getByRole('button', { name: 'View Cart' }).click({ timeout: CART_LOAD_MS });
             await expect(page).toHaveURL(/\/checkout\/shopping_cart\.jsp/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });
 

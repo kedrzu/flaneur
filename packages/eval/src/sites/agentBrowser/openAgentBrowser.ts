@@ -80,6 +80,8 @@ export interface SnapshotElement {
     url?: string;
     /** A checkbox's or radio's state. */
     checked?: boolean;
+    /** Set when the element is disabled: a click would not reach it. */
+    disabled?: true;
 }
 
 /** Which element `AgentBrowser.findRef` looks for: the first in the snapshot that matches every given field. */
@@ -323,12 +325,14 @@ export function parseSnapshot(text: string): SnapshotElement[] {
         }
         const url = fields.get('url');
         const checked = fields.get('checked');
+        const disabled = attributes.split(', ').includes('disabled');
         elements.push({
             ref: `@${ref}`,
             role,
             name: quotedName == null ? '' : unquote(quotedName),
             ...(url == null ? {} : { url }),
             ...(checked == null ? {} : { checked: checked === 'true' }),
+            ...(disabled ? { disabled } : {}),
         });
     }
     return elements;
