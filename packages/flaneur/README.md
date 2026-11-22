@@ -10,6 +10,11 @@ a proxy in front of it that keeps the client's code out of what page scripts can
 Chromium brand: every page and worker names itself Google Chrome, as the installed Chrome would. Why the API looks as
 it does: [`docs/decisions/package-api.md`](../../docs/decisions/package-api.md).
 
+Tested on 41 real sites behind Cloudflare, Akamai, HUMAN, DataDome, Kasada, AWS WAF, Imperva and Google, each errand
+(search, product, guest cart) run twice: driven by stock Playwright or by agent-browser, no attempt was challenged,
+while a headless Chromium was challenged on the sites that tell bots apart.
+[What it has been tested against](https://github.com/kedrzu/flaneur#what-it-has-been-tested-against).
+
 Runs on Node.js 22+ and Bun.
 
 ## Install
