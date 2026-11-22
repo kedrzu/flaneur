@@ -52,16 +52,68 @@ The CLI, its options and the library API: [`packages/flaneur/README.md`](package
 ## What it has been tested against
 
 Measured with the repo's own eval ([`packages/eval`](packages/eval/README.md)) on one residential connection in
-Poland, with Chrome for Testing 157. Each column is a single run on that day, so read it as evidence, not a benchmark:
-sites change their rules, and an IP's reputation moves results. Three browsers are compared:
+Poland, with Chrome for Testing 157. Each reading is a run on the day it names, so read it as evidence, not a
+benchmark: sites change their rules, and an IP's reputation moves results.
+
+### Errands on protected sites (2026-11-21)
+
+The eval's [site journeys](packages/eval/README.md#site-journeys) run what a person does on a site: open it, accept
+cookies, search, open a product, add it to a guest cart, view the cart (or browse only where there is no guest cart).
+51 journeys on 45 sites (41 real sites, the rest CAPTCHA test pages), each run twice, with flaneur as released in
+0.2.0: Chrome for Testing 157, a persistent profile, the human input on, one residential connection in Poland. The
+control is a plain headless Chromium running the same journeys.
+
+- **flaneur driven by stock Playwright:** 91 of 102 attempts completed the errand, **0 were challenged**. The other 11
+  broke in the journey (a dialog over the results, a changed layout); none showed a vendor's challenge marker.
+- **flaneur driven by agent-browser:** 26 of 28 completed, **0 challenged**; zara.com's journey broke twice on its cart
+  dialog.
+- **Headless Chromium:** challenged on 10 of the 26 journeys it ran (DataDome sites left out, as a headless visit
+  flags the IP there).
+
+Where the control is challenged, a pass is evidence. Attempts completed out of two; "broke" is the journey, not a
+challenge:
+
+|Vendor|Site|Headless Chromium|flaneur + Playwright|flaneur + agent-browser|
+|-|-|-|-|-|
+|Cloudflare|decathlon.pl|challenged|2/2|2/2|
+|Akamai|kohls.com|challenged|1/2 (1 broke)|2/2|
+|Akamai|sephora.pl|challenged|2/2|2/2|
+|Akamai|zara.com|challenged|2/2|0/2 (broke)|
+|HUMAN|zillow.com|challenged|2/2|2/2|
+|HUMAN|skyscanner.pl|challenged|2/2|2/2|
+|Kasada|realestate.com.au|challenged|2/2|2/2|
+|Kasada|otto.de|challenged|2/2|2/2|
+|reCAPTCHA|google.com, two searches|challenged (`/sorry/`)|2/2|2/2|
+|reCAPTCHA|v2 checkbox demo|image challenge|2/2, ticked|2/2, ticked|
+
+Also completed by flaneur and Playwright, without a challenge: x-kom, morele, ikea, notino, lego, kaufland, thalia
+(Cloudflare); zalando, hm, asos, lowes (Akamai); walmart, gamestop, fiverr (HUMAN); vinted, etsy, tripadvisor,
+airbnb, leroymerlin, seatgeek, leboncoin (DataDome); chewy, costco, nike (Kasada); booking, redfin, ocado (AWS WAF);
+hertz (Imperva); amazon.pl; six Google searches in a row; and longer walks (search, sort, page 2, two products, cart)
+on decathlon, zalando, walmart and otto. Some of them let the headless control through too (x-kom, ikea, nike, ocado,
+amazon), so there a pass proves less.
+
+What the eval found and flaneur now fixes, each settled by experiments that changed one thing at a time
+([journal](docs/design/stealth-browsing/history/EVAL-JOURNAL.md)):
+
+- **Playwright's DOM events.** Its injected script dispatches `__playwright_*` events on the page's DOM, and HUMAN
+  listens for them: adding them to a visit that otherwise passed got walmart.com to challenge it, twice out of two.
+  The proxy now keeps them in the client's world.
+- **agent-browser's traces.** Data attributes it stamps on elements, focus and clearing done by script, scrolling with
+  no wheel: hidden or done by hand.
+- **A navigation's referrer.** `goto` with a referrer sent a typed-URL request that carries one; dropped.
+- **The pace.** A self-solving interstitial (Kasada's `ips.js`, DataDome's device check) or a CAPTCHA in a hidden
+  frame no longer counts as a block of the site.
+
+### Sites behind anti-bot vendors (2026-11-15 to 19)
+
+The first readings loaded each site's home page once. Three browsers are compared:
 
 - **Headless Chromium**: Playwright's bundled Chromium in headless mode, the control that is plainly a bot.
 - **No stealth**: the same Chrome for Testing that flaneur runs, driven by agent-browser over CDP, before any of
   flaneur's layers existed (2026-11-15).
 - **flaneur**: its stealth layers on 2026-11-16, while they still lived inside the app they were built for, and the
   package itself on 2026-11-19.
-
-### Sites behind anti-bot vendors
 
 "Through" means the page loaded with its content; "challenged" means the vendor's challenge, CAPTCHA or block page.
 
@@ -101,8 +153,9 @@ searches one after another until the first CAPTCHA.
 
 The eval's [test shop](packages/eval/shop/README.md) scores a scripted visit, action by action, with reCAPTCHA v3
 (1.0 is a person, 0.0 a bot). On 11-15/16 the mean scores were 0.01–0.17 for headless Chromium, 0.50–0.70 with no
-stealth, 0.90 for flaneur and 0.90 for a person browsing by hand. On 11-19 headless Chromium also scored 0.90, so the
-key's scores no longer tell a bot from a person and this reading is on hold until they do.
+stealth, 0.90 for flaneur and 0.90 for a person browsing by hand. Since 11-19 headless Chromium also scores 0.90 there
+and on antcpt.com's demo, so those keys no longer tell a bot from a person. 2captcha.com's demo key does: it gave
+flaneur between 0.3 and 0.9 over 11-21 (mostly 0.7–0.9), with no person's reading on that key yet to compare.
 
 ### Not measured
 
