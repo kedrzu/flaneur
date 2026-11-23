@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { expect, test } from 'playwright/test';
-import type { Page, TestInfo } from 'playwright/test';
+import type { Page, TestDetailsAnnotation, TestInfo } from 'playwright/test';
 
 import { assert } from '@nzyme/utils/assert.js';
 
@@ -17,6 +17,8 @@ export interface CaptchaCheck {
     /** The CAPTCHA's vendor. */
     vendor: ChallengeVendor;
     url: string;
+    /** What the verdict depends on besides the browser, as a test annotation. */
+    note?: TestDetailsAnnotation;
     /** Loads the page and reads its verdict; a verdict against the browser fails the test as `challenged`. */
     run(page: Page, step: JourneyStep, testInfo: TestInfo): Promise<void>;
 }
@@ -34,6 +36,17 @@ const TWOCAPTCHA_V3_URL = 'https://2captcha.com/demo/recaptcha-v3';
 const ANTCPT_V3_URL = 'https://antcpt.com/eng/information/demo-form/recaptcha-3-test-score.html';
 /** Google's reCAPTCHA v2 demo. */
 export const RECAPTCHA_V2_URL = 'https://www.google.com/recaptcha/api2/demo';
+
+/**
+ * Why the v2 checkbox's verdict is read with the connection in mind: on 2026-11-23 the demo showed the image challenge
+ * to a person in their own Chrome on the eval's home IP too, so a `challenged` here then measured the IP, not flaneur.
+ * Both projects annotate the check with it.
+ */
+export const RECAPTCHA_V2_IP_NOTE: TestDetailsAnnotation = {
+    type: 'ip-dependent',
+    description:
+        "The checkbox's verdict follows the IP's reputation: a person's own Chrome on the eval's IP got the image challenge too (2026-11-23).",
+};
 const NOWSECURE_URL = 'https://nowsecure.nl/';
 
 /** 2captcha's reCAPTCHA v3 demo: "Check" verifies a fresh token on its server and shows the response, score included. */
@@ -87,6 +100,7 @@ const recaptchaV2: CaptchaCheck = {
     name: 'Google reCAPTCHA v2 checkbox',
     vendor: 'reCAPTCHA',
     url: RECAPTCHA_V2_URL,
+    note: RECAPTCHA_V2_IP_NOTE,
     run: async (page, step, testInfo) => {
         await step('open the demo', async () => {
             await page.goto(RECAPTCHA_V2_URL);

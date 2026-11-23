@@ -39,7 +39,8 @@ export function openProducts(page: Page, selector: string, options: OpenProducts
 
     async function openAnother() {
         assert(firstHref != null, 'openAnother() before openFirst()');
-        await clickLink(page.locator(`${selector}:not([href=${JSON.stringify(firstHref)}])`).first());
+        // `:is()` keeps the exclusion on every part of a selector list, not only its last.
+        await clickLink(page.locator(`:is(${selector}):not([href=${JSON.stringify(firstHref)}])`).first());
     }
 
     async function clickLink(link: Locator) {

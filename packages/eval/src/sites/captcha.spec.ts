@@ -13,6 +13,7 @@ for (const check of CAPTCHA_CHECKS) {
                 annotation: [
                     { type: VENDOR_ANNOTATION, description: check.vendor },
                     { type: SITE_ANNOTATION, description: site },
+                    ...(check.note == null ? [] : [check.note]),
                 ],
             },
             async ({ page, step }, testInfo) => {

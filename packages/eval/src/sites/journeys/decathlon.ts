@@ -6,6 +6,12 @@ import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.decathlon.pl/';
 
+/**
+ * A result's product link, relative or on decathlon.pl. A bare `/p/` also matches the footer's link to Decathlon's
+ * vulnerability disclosure policy (`vdp.decathlon.net/p/Policy`), which comes first while the results still render.
+ */
+export const DECATHLON_PRODUCT_LINK = 'a[href^="/p/"], a[href^="https://www.decathlon.pl/p/"]';
+
 /** Decathlon behind Cloudflare: a search, a product with no size to pick, the guest cart. */
 export const decathlon = defineJourney({
     name: 'decathlon.pl',
@@ -27,7 +33,7 @@ export const decathlon = defineJourney({
             await expect(page).toHaveURL(/\/search\?Ntt=/);
         });
         await step('open a product', async () => {
-            await page.locator('a[href*="/p/"]').first().click();
+            await page.locator(DECATHLON_PRODUCT_LINK).first().click();
             await expect(page.getByRole('button', { name: 'Dodaj do koszyka' })).toBeVisible();
         });
         await step('add to cart', async () => {

@@ -12,6 +12,12 @@ export const REMOVE_FROM_CART =
 /** The names of a cart line's control that takes one piece out, used where a line has no remove (H&M, Ocado). */
 export const ONE_LESS_IN_CART = /^(zmniejsz|decrease quantity|decrease value)(?!\p{L})/iu;
 
+/**
+ * The names of the control closing a side panel a cart opens over its lines: Walmart's "Choose a replacement?" for
+ * items out of stock, whose backdrop takes every click on the lines below.
+ */
+export const CLOSE_CART_PANEL = /^close (panel|dialog)$/i;
+
 /** The most clicks one emptying makes: a cart that grew before the journeys emptied it holds about 20 items. */
 export const MAX_CART_REMOVALS = 25;
 
@@ -39,7 +45,7 @@ const REMOVAL_POLL_MS = 500;
  * for it (GameStop's 10 items, Xcite's 3 of a product, Notino's cream, LEGO's set) or a changed flow breaks the journey.
  * Clicks the last visible remove control (a confirmation the click brings shows its own after the line's), or the last
  * "one less" where no line has a remove, while the page changes after each click, at most `MAX_CART_REMOVALS` times.
- * Never touches the checkout.
+ * A side panel over the lines is closed first, as a person closes it to reach them. Never touches the checkout.
  * @util
  */
 export async function emptyCart(page: Page) {
@@ -58,6 +64,11 @@ export async function emptyCart(page: Page) {
             );
         if (!shown) {
             return;
+        }
+        const panelClose = findControls(page, CLOSE_CART_PANEL).first();
+        if (await panelClose.isVisible()) {
+            await panelClose.click();
+            await panelClose.waitFor({ state: 'hidden', timeout: SETTLE_MS });
         }
         const target = (await remove.count()) > 0 ? remove.last() : oneLess.last();
         const before = await readPage();

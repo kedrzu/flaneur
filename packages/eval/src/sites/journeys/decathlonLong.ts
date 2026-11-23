@@ -2,9 +2,11 @@ import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
 import { emptyCart } from '../utils/emptyCart.js';
+import { openNextPage } from '../utils/openNextPage.js';
 import { openProducts } from '../utils/openProducts.js';
 import { readPage } from '../utils/readPage.js';
 import { submitSearch } from '../utils/submitSearch.js';
+import { DECATHLON_PRODUCT_LINK } from './decathlon.js';
 
 const URL = 'https://www.decathlon.pl/';
 
@@ -18,7 +20,7 @@ export const decathlonLong = defineJourney({
     url: URL,
     tags: ['@long'],
     run: async (page, step) => {
-        const products = openProducts(page, 'a[href*="/p/"]');
+        const products = openProducts(page, DECATHLON_PRODUCT_LINK);
 
         await step('open the home page', async () => {
             await page.goto(URL);
@@ -40,8 +42,7 @@ export const decathlonLong = defineJourney({
             await expect(page).toHaveURL(/[?&]sort=rating/);
         });
         await step('open page 2', async () => {
-            await page.getByRole('link', { name: 'Przejdź do następnej strony' }).click();
-            await expect(page).toHaveURL(/[?&]from=40/);
+            await openNextPage(page.getByRole('link', { name: 'Przejdź do następnej strony' }), /[?&]from=40/);
         });
         await step('open a product', async () => {
             await products.openFirst();

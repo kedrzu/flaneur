@@ -1,12 +1,13 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { chooseZalandoSize } from '../utils/chooseZalandoSize.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.zalando.pl/';
 
-/** Zalando behind Akamai: a search, a one-size product, the guest cart. */
+/** Zalando behind Akamai: a search, a product in its first size in stock (or its only one), the guest cart. */
 export const zalando = defineJourney({
     name: 'zalando.pl',
     vendor: 'Akamai',
@@ -41,6 +42,13 @@ export const zalando = defineJourney({
             await page.locator('article a[href$=".html"]').first().click();
             await expect(page.getByRole('button', { name: 'Dodaj do koszyka' })).toBeVisible();
         });
+        await step(
+            'choose a size',
+            async () => {
+                await chooseZalandoSize(page);
+            },
+            { optional: true },
+        );
         await step('add to cart', async () => {
             await page.getByRole('button', { name: 'Dodaj do koszyka' }).click();
             await expect(page.getByRole('link', { name: /koszyk/i }).filter({ hasText: /[1-9]/ })).toBeVisible();

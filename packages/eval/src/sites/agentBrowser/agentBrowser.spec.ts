@@ -1,3 +1,4 @@
+import { RECAPTCHA_V2_IP_NOTE } from '../captchaChecks.js';
 import { describeSite } from '../describeSite.js';
 import { runJourney } from '../defineJourney.js';
 import { SITE_ANNOTATION, VENDOR_ANNOTATION } from '../summarizeSites.js';
@@ -37,6 +38,7 @@ describeSite(checkboxSite, () => {
             annotation: [
                 { type: VENDOR_ANNOTATION, description: recaptchaCheckbox.vendor },
                 { type: SITE_ANNOTATION, description: checkboxSite },
+                RECAPTCHA_V2_IP_NOTE,
             ],
         },
         async ({ ab, step }, testInfo) => {

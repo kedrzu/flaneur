@@ -2,6 +2,7 @@ import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
 import { emptyCart } from '../utils/emptyCart.js';
+import { openNextPage } from '../utils/openNextPage.js';
 import { openProducts } from '../utils/openProducts.js';
 import { readPage } from '../utils/readPage.js';
 import { submitSearch } from '../utils/submitSearch.js';
@@ -37,8 +38,7 @@ export const walmartLong = defineJourney({
             await expect(page).toHaveURL(/[?&]sort=best_seller/);
         });
         await step('open page 2', async () => {
-            await page.getByRole('button', { name: 'Next Page' }).click();
-            await expect(page).toHaveURL(/[?&]page=2/);
+            await openNextPage(page.getByRole('button', { name: 'Next Page' }), /[?&]page=2/);
         });
         await step('open a product', async () => {
             await products.openFirst();

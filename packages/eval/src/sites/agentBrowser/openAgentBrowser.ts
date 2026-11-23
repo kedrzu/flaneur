@@ -26,8 +26,9 @@ export interface AgentBrowser {
     /** `find role <role> click --name <name>`, tried again while nothing matches, within the action timeout. */
     clickRole(role: string, name: string, options?: ClickRoleOptions): Promise<void>;
     /**
-     * `click <@ref|selector>`, tried again while the target is missing, within the action timeout. Given a query, each
-     * try clicks the ref of a fresh snapshot, as an agent does when a re-rendered page dropped the ref it had.
+     * `click <@ref|selector>`, tried again while the target is missing or covered, within the action timeout. Given a
+     * query, each try clicks the ref of a fresh snapshot, as an agent does when a re-rendered page dropped the ref it
+     * had or put a new element where it pointed.
      */
     click(target: string | ElementQuery): Promise<void>;
     /** `fill <@ref|selector> <text>`: clears the field and types the text. */
@@ -113,6 +114,12 @@ export interface AgentBrowserSession {
     close(): Promise<void>;
 }
 
+/** Which failures `retryWhileMissing` tries again besides a missing target. */
+interface RetryOptions {
+    /** A click refused because something else lies at the target's click point. */
+    covered?: boolean;
+}
+
 /** Between two tries of a command whose target is missing, and two looks at the URL: an agent's next turn. */
 const RETRY_MS = 1000;
 
@@ -143,8 +150,9 @@ export async function openAgentBrowser(params: OpenAgentBrowserParams): Promise<
                 run('find', 'role', role, 'click', '--name', name, ...(options.exact ? ['--exact'] : [])),
             ),
         click: target =>
-            retryWhileMissing(async () =>
-                run('click', typeof target === 'string' ? target : (await findOnce(target)).ref),
+            retryWhileMissing(
+                async () => run('click', typeof target === 'string' ? target : (await findOnce(target)).ref),
+                { covered: true },
             ),
         fill: (target, text) => retryWhileMissing(() => run('fill', target, text)),
         press: key => run('press', key),
@@ -277,14 +285,20 @@ export async function openAgentBrowser(params: OpenAgentBrowserParams): Promise<
         }
     }
 
-    /** Tries `command` again while it fails on a missing target, until the action timeout; an agent snapshots and retries. */
-    async function retryWhileMissing<T>(command: () => Promise<T>): Promise<T> {
+    /**
+     * Tries `command` again while it fails on a missing target, or with `covered` on a covered one, until the action
+     * timeout; an agent snapshots and retries.
+     */
+    async function retryWhileMissing<T>(command: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
         const deadline = Date.now() + actionTimeoutMs;
         for (;;) {
             try {
                 return await command();
             } catch (error) {
-                if (!(error instanceof AgentBrowserError) || !error.missingTarget || Date.now() > deadline) {
+                const retried =
+                    error instanceof AgentBrowserError &&
+                    (error.missingTarget || (options.covered === true && error.coveredTarget));
+                if (!retried || Date.now() > deadline) {
                     throw error;
                 }
             }

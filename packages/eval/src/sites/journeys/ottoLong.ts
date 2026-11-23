@@ -2,6 +2,7 @@ import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
 import { emptyCart } from '../utils/emptyCart.js';
+import { openNextPage } from '../utils/openNextPage.js';
 import { openProducts } from '../utils/openProducts.js';
 import { readPage } from '../utils/readPage.js';
 import { submitSearch } from '../utils/submitSearch.js';
@@ -40,9 +41,11 @@ export const ottoLong = defineJourney({
             await expect(page).toHaveURL(/sortiertnach=bewertung/);
         });
         await step('open page 2', async () => {
-            await page.getByRole('button', { name: '2', exact: true }).filter({ visible: true }).first().click();
             // OTTO's paging counts products: the second page starts at the 120th.
-            await expect(page).toHaveURL(/[?&]o=120/);
+            await openNextPage(
+                page.getByRole('button', { name: '2', exact: true }).filter({ visible: true }).first(),
+                /[?&]o=120/,
+            );
         });
         await step('open a product', async () => {
             await products.openFirst();
