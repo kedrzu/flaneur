@@ -31,7 +31,7 @@ honours the CLI's `node` shebang and runs it on Node when Node is installed.
 
 ```bash
 npx flaneur [--chrome installed|own|testing|testing@<version>|<path>] \
-    [--user-data-dir <dir>] [--port <n>] [--no-pace] [--no-human-input] \
+    [--user-data-dir <dir>] [--port <n>] [--idle-timeout <minutes>] [--no-pace] [--no-human-input] \
     [--vpn <region> --vpn-provider <name>] [-- <chrome args>]
 ```
 
@@ -52,7 +52,9 @@ endpoint drives the browser: it listens on `127.0.0.1` only and refuses any conn
   `--no-human-input` sends them as the client does.
 - **VPN:** `--vpn "US Texas" --vpn-provider "private internet access"` sends the browser, and only the browser,
   through a VPN server region (see below).
-- **Exit:** non-zero when Chrome exits or the start fails; SIGINT and SIGTERM close the browser cleanly.
+- **Idle stop:** with no client command for 5 minutes (`--idle-timeout <minutes>`, `0` never), it stops as on SIGTERM,
+  so a browser an agent forgot to stop does not run on. A connected client that sends nothing does not keep it up.
+- **Exit:** non-zero when Chrome exits or the start fails; SIGINT, SIGTERM and the idle stop close the browser cleanly.
 
 > [!WARNING]
 > There is no headless mode on purpose. Headless Chrome reports `HeadlessChrome` in its user agent, and the brand
@@ -231,9 +233,10 @@ import {
   browser restart.
 - `createHumanInput({ clock?, random?, typingIntervalMs?, minTimeOnPageMs?, maxTimeOnPageMs? })` creates the human
   input; pass it as `input` to a launch or `connectOwnChrome`. Without one, input goes as the client sends it.
-- `serveStealthBrowser(options & { port? })` is what the CLI runs: it launches the browser and serves it at a
-  tokenised `127.0.0.1` endpoint, each socket a client with no group. `close()` stops both. `serveBrowser(browser,
-  { port?, logger? })` is its serving half, for a browser already started.
+- `serveStealthBrowser(options & { port?, idleTimeoutMs? })` is what the CLI runs: it launches the browser and serves it at a
+  tokenised `127.0.0.1` endpoint, each socket a client with no group. `close()` stops both; `idle` resolves once no client command came for `idleTimeoutMs`, and the caller decides
+  whether to close. `serveBrowser(browser,
+  { port?, idleTimeoutMs?, logger? })` is its serving half, for a browser already started.
 - `proxy: { server, username?, password? }` on a launch sends every request through an HTTP proxy. Chrome takes no
   proxy login on its command line, so the browser answers the proxy's challenges itself over CDP (`Fetch` on the
   browser target, unseen by pages and clients); a client's own `Fetch` on a page keeps working.

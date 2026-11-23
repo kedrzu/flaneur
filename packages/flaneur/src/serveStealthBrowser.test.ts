@@ -67,6 +67,44 @@ test('listens on 127.0.0.1 only', async () => {
     }
 });
 
+test(
+    'goes idle only once no client command came for the idle timeout',
+    async () => {
+        const idleServer = await serveStealthBrowser({
+            executablePath: chromium.executablePath(),
+            userDataDir: await mkdtemp(path.join(os.tmpdir(), 'flaneur-serve-idle-')),
+            args: ['--headless=new', '--no-sandbox'],
+            idleTimeoutMs: 1000,
+            logger: createTestLogger('StealthBrowser').logger,
+        });
+        try {
+            const socket = new WebSocket(idleServer.endpoint);
+            await new Promise(resolve => {
+                socket.addEventListener('open', resolve);
+            });
+            // Commands every 400 ms for 2.4 s, more than twice the timeout, keep it serving.
+            for (let id = 1; id <= 6; id++) {
+                socket.send(JSON.stringify({ id, method: 'Browser.getVersion' }));
+                await Bun.sleep(400);
+            }
+            expect(await isSettled(idleServer.idle)).toBe(false);
+
+            // An open socket that sends nothing does not count.
+            await Bun.sleep(1500);
+            expect(await isSettled(idleServer.idle)).toBe(true);
+            socket.close();
+        } finally {
+            await idleServer.close();
+        }
+    },
+    TIMEOUT_MS,
+);
+
+/** Whether `promise` has already resolved, checked without waiting for it. */
+function isSettled(promise: Promise<void>) {
+    return Promise.race([promise.then(() => true), Bun.sleep(0).then(() => false)]);
+}
+
 /** The status of a WebSocket upgrade request to `pathname`. */
 async function upgrade(pathname: string, headers: Record<string, string> = {}) {
     const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {

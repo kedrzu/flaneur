@@ -18,6 +18,9 @@ import type { StealthBrowserServer } from './serveBrowser.js';
 import { serveStealthBrowser } from './serveStealthBrowser.js';
 import { startVpnTunnel } from './startVpnTunnel.js';
 
+/** Minutes without a client command before the CLI stops: long enough to read a page, short enough not to linger. */
+const DEFAULT_IDLE_TIMEOUT_MINUTES = 5;
+
 /**
  * The CLI's default command: launches a stealth Chrome and serves it until Chrome exits or the process is stopped.
  * stdout is a contract, the endpoint as its only line; everything else goes to stderr.
@@ -29,7 +32,8 @@ export class ServeCommand extends Command {
         description: 'Launch a stealth Chrome and print its CDP endpoint',
         details: `
             Prints the endpoint, \`ws://127.0.0.1:<port>/<token>\`, as the only line on stdout; logs go to stderr.
-            Runs until Chrome exits (exit code 1) or the process gets SIGINT or SIGTERM (exit code 0).
+            Runs until Chrome exits (exit code 1), the process gets SIGINT or SIGTERM, or no client sends a command for
+            \`--idle-timeout\` minutes (exit code 0).
             Arguments after \`--\` are passed to Chrome as they are.
         `,
         examples: [
@@ -58,6 +62,10 @@ export class ServeCommand extends Command {
 
     pace = Option.Boolean('--pace', true, { description: 'Hold sites to a human pace; `--no-pace` turns it off' });
 
+    idleTimeout = Option.String('--idle-timeout', {
+        description: `Stop after this many minutes without a client command (${DEFAULT_IDLE_TIMEOUT_MINUTES} by default); \`0\` never stops`,
+    });
+
     humanInput = Option.Boolean('--human-input', true, {
         description: 'Move, click, type and scroll like a person; `--no-human-input` sends input as the client does',
     });
@@ -77,6 +85,7 @@ export class ServeCommand extends Command {
     override async run() {
         const chrome = parseChromeOption(this.chrome);
         const port = this.port == null ? undefined : parsePort(this.port);
+        const idleTimeoutMs = parseIdleTimeout(this.idleTimeout ?? String(DEFAULT_IDLE_TIMEOUT_MINUTES));
         if ((this.vpn == null) !== (this.vpnProvider == null)) {
             throw new Error('--vpn and --vpn-provider go together');
         }
@@ -96,7 +105,7 @@ export class ServeCommand extends Command {
                 logger: this.logger,
             });
             try {
-                return await this.serve(await serveBrowser(browser, { port, logger: this.logger }));
+                return await this.serve(await serveBrowser(browser, { port, idleTimeoutMs, logger: this.logger }));
             } catch (error) {
                 await browser.close();
                 throw error;
@@ -121,6 +130,7 @@ export class ServeCommand extends Command {
                 args: this.chromeArgs,
                 proxy: tunnel?.proxy,
                 port,
+                idleTimeoutMs,
                 pace,
                 input,
                 logger: this.logger,
@@ -137,8 +147,8 @@ export class ServeCommand extends Command {
     }
 
     /**
-     * Prints the endpoint and serves until the browser goes (exit code 1) or the process is stopped (exit code 0): a
-     * launched Chrome closes, the user's own Chrome is only let go.
+     * Prints the endpoint and serves until the browser goes (exit code 1), or the process is stopped or left idle (exit
+     * code 0): a launched Chrome closes, the user's own Chrome is only let go.
      */
     private async serve(server: StealthBrowserServer) {
         this.context.stdout.write(`${server.endpoint}\n`);
@@ -146,6 +156,8 @@ export class ServeCommand extends Command {
         let closing = false;
         process.once('SIGINT', close);
         process.once('SIGTERM', close);
+        const logger = this.logger;
+        void closeWhenIdle();
 
         const exit = await server.browser.exited;
         await server.close();
@@ -158,6 +170,12 @@ export class ServeCommand extends Command {
         function close() {
             closing = true;
             void server.close();
+        }
+
+        async function closeWhenIdle() {
+            await server.idle;
+            logger.info('No client sent a command for the idle timeout: stopping');
+            close();
         }
     }
 
@@ -209,6 +227,15 @@ function readVpnCredentials() {
         throw new Error('--vpn needs the VPN login in FLANEUR_VPN_USER and FLANEUR_VPN_PASSWORD');
     }
     return { username, password };
+}
+
+/** `--idle-timeout` in milliseconds; `undefined` for `0`, which never stops. */
+function parseIdleTimeout(value: string) {
+    const minutes = Number(value);
+    if (value.trim() === '' || !Number.isFinite(minutes) || minutes < 0) {
+        throw new Error(`--idle-timeout is not a number of minutes: ${value}`);
+    }
+    return minutes === 0 ? undefined : minutes * 60_000;
 }
 
 function parsePort(value: string) {

@@ -15,6 +15,8 @@ import type { StealthBrowser } from './createStealthBrowser.js';
 export interface ServeBrowserOptions {
     /** The local port to listen on; any free one by default. */
     port?: number;
+    /** How long the server may go without a client command before `idle` resolves; never by default. */
+    idleTimeoutMs?: number;
     logger?: Logger;
 }
 
@@ -23,6 +25,11 @@ export interface StealthBrowserServer {
     /** The URL a CDP client connects to: `ws://127.0.0.1:<port>/<token>`. Whoever has it drives the browser. */
     endpoint: string;
     browser: StealthBrowser<undefined>;
+    /**
+     * Resolves once no client has connected or sent a command for `idleTimeoutMs`. A served browser outlives the agent
+     * that started it when the agent never stops it; this is the moment its host stops it instead.
+     */
+    idle: Promise<void>;
     /** Stops the server, closing every client, and closes the browser. */
     close(): Promise<void>;
 }
@@ -42,6 +49,8 @@ export async function serveBrowser(
 ): Promise<StealthBrowserServer> {
     const logger = options.logger ?? createLogger('Flaneur');
     const token = randomUUID();
+    const idle = Promise.withResolvers<void>();
+    let idleTimer: NodeJS.Timeout | undefined;
 
     const sockets = new WebSocketServer({ noServer: true });
     const server = createServer((_request, response) => {
@@ -57,7 +66,9 @@ export async function serveBrowser(
         }
         sockets.handleUpgrade(request, socket, head, ws => {
             const client = browser.connect(ws, { data: undefined });
+            restartIdleTimer();
             ws.on('message', (message, isBinary) => {
+                restartIdleTimer();
                 if (isBinary) {
                     ws.close(CLOSE_UNSUPPORTED_DATA, 'CDP messages are text');
                 } else {
@@ -77,13 +88,24 @@ export async function serveBrowser(
     }
 
     logger.info('The browser is served', { port });
+    restartIdleTimer();
     return {
         endpoint: `ws://127.0.0.1:${port}/${token}`,
         browser,
+        idle: idle.promise,
         close,
     };
 
+    function restartIdleTimer() {
+        if (options.idleTimeoutMs == null) {
+            return;
+        }
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => idle.resolve(), options.idleTimeoutMs);
+    }
+
     async function close() {
+        clearTimeout(idleTimer);
         for (const client of sockets.clients) {
             client.terminate();
         }
