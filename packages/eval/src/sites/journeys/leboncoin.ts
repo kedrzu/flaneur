@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.leboncoin.fr/';
@@ -31,7 +30,7 @@ export const leboncoin = defineJourney({
             await expect(page).toHaveURL(/\/recherche\?.*text=/);
         });
         await step('open an ad', async () => {
-            await clickResult(page.locator('a[href*="/ad/"]').first());
+            await page.locator('a[href*="/ad/"]').first().click();
             await expect(page).toHaveURL(/\/ad\//);
             await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
         });

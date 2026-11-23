@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -40,12 +39,11 @@ export const thalia = defineJourney({
             await expect(page).toHaveURL(/\/suche\?sq=/);
         });
         await step('open a book', async () => {
-            await clickResult(
-                page
-                    .locator('a[href*="/artikeldetails/"]')
-                    .filter({ hasText: /Zauberberg/ })
-                    .first(),
-            );
+            await page
+                .locator('a[href*="/artikeldetails/"]')
+                .filter({ hasText: /Zauberberg/ })
+                .first()
+                .click();
             await expect(page).toHaveURL(/\/artikeldetails\//);
         });
         await step('add to cart', async () => {

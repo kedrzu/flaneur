@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { openProducts } from '../utils/openProducts.js';
 import { readPage } from '../utils/readPage.js';
@@ -64,7 +63,10 @@ export const walmartLong = defineJourney({
             await expect(page).toHaveURL(/[?&]page=2/);
         });
         await step('add to cart', async () => {
-            await clickResult(page.getByRole('button', { name: /^Add to cart - / }).first());
+            await page
+                .getByRole('button', { name: /^Add to cart - / })
+                .first()
+                .click();
             await expect(page.getByRole('button', { name: /Cart contains [1-9]/ })).toBeVisible();
         });
         await step('open the cart', async () => {

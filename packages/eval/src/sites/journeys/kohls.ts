@@ -2,7 +2,6 @@ import { expect } from 'playwright/test';
 import type { Page } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -25,7 +24,7 @@ export const kohls = defineJourney({
             await expect(page).toHaveURL(/\/search\.jsp\?(.*&)?search=towels/);
         });
         await step('open a product', async () => {
-            await clickResult(page.locator('a[href*="/product/prd-"]').first());
+            await page.locator('a[href*="/product/prd-"]').first().click();
             await expect(details(page).getByRole('button', { name: 'Add to Cart' })).toBeVisible();
         });
         await step(

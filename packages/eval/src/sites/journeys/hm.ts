@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -36,12 +35,11 @@ export const hm = defineJourney({
             { optional: true },
         );
         await step('open a product', async () => {
-            await clickResult(
-                page
-                    .locator('a[href*="/productpage."]')
-                    .filter({ hasText: /sweter/i })
-                    .first(),
-            );
+            await page
+                .locator('a[href*="/productpage."]')
+                .filter({ hasText: /sweter/i })
+                .first()
+                .click();
             await expect(page).toHaveURL(/\/productpage\.\d+\.html/);
         });
         await step('choose a size', async () => {

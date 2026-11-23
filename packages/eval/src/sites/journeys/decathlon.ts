@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -28,7 +27,7 @@ export const decathlon = defineJourney({
             await expect(page).toHaveURL(/\/search\?Ntt=/);
         });
         await step('open a product', async () => {
-            await clickResult(page.locator('a[href*="/p/"]').first());
+            await page.locator('a[href*="/p/"]').first().click();
             await expect(page.getByRole('button', { name: 'Dodaj do koszyka' })).toBeVisible();
         });
         await step('add to cart', async () => {

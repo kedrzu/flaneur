@@ -2,7 +2,6 @@ import { expect } from 'playwright/test';
 import type { Page } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -39,12 +38,11 @@ export const euro = defineJourney({
             { optional: true },
         );
         await step('open a product', async () => {
-            await clickResult(
-                page
-                    .locator('a[href*="/sluchawki/"][href$=".bhtml"]')
-                    .filter({ hasText: /Słuchawki/ })
-                    .first(),
-            );
+            await page
+                .locator('a[href*="/sluchawki/"][href$=".bhtml"]')
+                .filter({ hasText: /Słuchawki/ })
+                .first()
+                .click();
             await expect(page.getByRole('button', { name: 'Do koszyka' }).first()).toBeVisible();
         });
         await step('add to cart', async () => {

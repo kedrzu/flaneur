@@ -2,7 +2,6 @@ import { expect } from 'playwright/test';
 import type { Page } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -25,7 +24,7 @@ export const xcite = defineJourney({
             await expect(page).toHaveURL(/\/search\?q=air/);
         });
         await step('open a product', async () => {
-            await clickResult(page.locator('a[href*="/p"]').filter({ hasText: /fryer/i }).first());
+            await page.locator('a[href*="/p"]').filter({ hasText: /fryer/i }).first().click();
             await expect(addToCart(page)).toBeVisible();
         });
         // The product page disables its button once the cart holds 3 of the product (the air fryer, 2026-11-22), and the

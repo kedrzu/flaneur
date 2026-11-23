@@ -4,6 +4,20 @@ Hypotheses about why sites detect flaneur, the evidence for and against each, an
 day. Results files are in `~/.flaneur-eval/results` on the owner's machine; the site journeys are
 `packages/eval/src/sites`.
 
+## 2026-11-23
+
+### Covers the cursor's way opened, handled in flaneur
+
+The hover menus of 2026-11-22 (lowes.com, nike.com, chewy.com, vinted.pl) are now the human input's to handle
+([D4](../DECISIONS.md#d4)): before a press it checks that the node the client aimed at is still what lies at the point
+and, when a cover hides it, moves off the cover, waits for it to close and comes back from below or the side.
+`clickResult`, the backdrop clicks and vinted.pl's lower item are gone; every journey clicks a result with Playwright's
+own `click()`. One run each, from the home address just reset: nike.com, lowes.com, chewy.com and vinted.pl passed, and
+vinted.pl's agent-browser journey too. nike.com passed twice; in the second run the input met a cover once and moved off
+it on the first attempt. In chewy.com's first run the input took the card's own hover (what lies under the point
+changes inside the result link) for a cover: three needless moves off it, 10 s lost, the click then landing. The check
+now compares against the control around the aimed node, and the next chewy.com run met no cover.
+
 ## 2026-11-21
 
 ### Late night: agent-browser on the protected sites

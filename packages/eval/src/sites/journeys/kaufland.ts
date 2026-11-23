@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -50,7 +49,7 @@ export const kaufland = defineJourney({
         );
         await step('open a product', async () => {
             // The tile holds buttons of its own (a price badge opens a dialog): a person clicks the picture.
-            await clickResult(page.locator('a[href*="/product/"] .product-image__wrapper').first());
+            await page.locator('a[href*="/product/"] .product-image__wrapper').first().click();
             await expect(page).toHaveURL(/\/product\/\d+/);
         });
         await step('add to cart', async () => {

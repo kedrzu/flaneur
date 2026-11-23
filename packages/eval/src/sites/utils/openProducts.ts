@@ -2,8 +2,6 @@ import type { Locator, Page } from 'playwright/test';
 
 import { assert } from '@nzyme/utils/assert.js';
 
-import { clickResult } from './clickResult.js';
-
 /** Two products opened from one listing, as a person compares them. */
 export interface ProductLinks {
     /** Clicks the listing's first product link and remembers where it leads. */
@@ -25,8 +23,7 @@ export interface OpenProductsOptions {
 const IMAGE_AT = 0.25;
 
 /**
- * Opens two different products from a listing whose product links `selector` matches, coming to each as
- * `clickResult` does.
+ * Opens two different products from a listing whose product links `selector` matches.
  * @util
  */
 export function openProducts(page: Page, selector: string, options: OpenProductsOptions = {}): ProductLinks {
@@ -47,11 +44,11 @@ export function openProducts(page: Page, selector: string, options: OpenProducts
 
     async function clickLink(link: Locator) {
         if (options.clickImage !== true) {
-            await clickResult(link);
+            await link.click();
             return;
         }
         const box = await link.boundingBox();
         assert(box != null, 'A product link with no box');
-        await clickResult(link, { position: { x: box.width / 2, y: box.height * IMAGE_AT } });
+        await link.click({ position: { x: box.width / 2, y: box.height * IMAGE_AT } });
     }
 }

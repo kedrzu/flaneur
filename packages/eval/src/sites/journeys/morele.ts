@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -31,7 +30,7 @@ export const morele = defineJourney({
             await expect(page).toHaveURL(/\/wyszukiwarka\/\?q=/);
         });
         await step('open a product', async () => {
-            await clickResult(page.locator('a.product-card__name-link').first());
+            await page.locator('a.product-card__name-link').first().click();
             await expect(page.getByRole('button', { name: 'Do koszyka' }).first()).toBeVisible();
         });
         await step('add to cart', async () => {

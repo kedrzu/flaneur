@@ -3,7 +3,6 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -38,12 +37,11 @@ export const leroymerlin = defineJourney({
             await expect(page).toHaveURL(/\/search\?q=wiertarka/);
         });
         await step('open a product', async () => {
-            await clickResult(
-                page
-                    .locator('a[href*="/produkty/"][href$=".html"]')
-                    .filter({ hasText: /Wiertarka/ })
-                    .first(),
-            );
+            await page
+                .locator('a[href*="/produkty/"][href$=".html"]')
+                .filter({ hasText: /Wiertarka/ })
+                .first()
+                .click();
             await expect(page.getByRole('button', { name: 'Dodaj do koszyka' }).first()).toBeVisible();
         });
         await step('add to cart', async () => {

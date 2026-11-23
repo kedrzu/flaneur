@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -26,12 +25,11 @@ export const homedepot = defineJourney({
         });
         await step('open a product', async () => {
             // The page also holds a hidden "recently viewed" strip of the products earlier runs opened.
-            await clickResult(
-                page
-                    .locator('a[href*="/p/"]')
-                    .filter({ hasText: /Hammer/, visible: true })
-                    .first(),
-            );
+            await page
+                .locator('a[href*="/p/"]')
+                .filter({ hasText: /Hammer/, visible: true })
+                .first()
+                .click();
             await expect(page).toHaveURL(/\/p\//);
         });
         await step('add to cart', async () => {
