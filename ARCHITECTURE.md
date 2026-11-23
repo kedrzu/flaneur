@@ -49,14 +49,15 @@ the entry's `version` changes, so the skill reaches OpenCode users with a releas
 - **Checks:** `bun run typecheck`, `bun run lint:check`, `bun run format:check` and `bun run tests`
   (`tests:full` for every test). CI runs all four, with `tests:full`, on every pull request
   and every push to `main` (`.github/workflows/build.yml`, required check `Build`).
-- **Release:** pushing a `v*` tag runs `.github/workflows/release.yml`: build, typecheck, tests, then
+- **Release:** one manual run of `.github/workflows/release.yml` on `main`. It sets the version
+  (`scripts/bumpVersion.ts`) and commits it on the runner; builds, typechecks and tests that commit; packs it with
   `scripts/packRelease.sh` (`bun pm pack`, which rewrites `workspace:*` to real versions, and
   `scripts/checkPackedRelease.sh`: the pinned `@nzyme/*` source equals each package's nzyme release tag, and the
-  tarball installs from npm and loads on Node) and `npm publish --provenance` of that tarball through npm trusted
-  publishing (OIDC); a version already on npm is skipped. A manual dispatch publishes the version in
-  `packages/flaneur/package.json`. npm accepts a trusted publisher only for an existing package, so the first version
-  is published from the maintainer's machine by `scripts/bootstrapNpm.sh`, which then sets the trusted publisher and
-  pushes the tag.
+  tarball installs from npm and loads on Node); publishes the tarball with `npm publish --provenance` through npm
+  trusted publishing (OIDC). Only then does it push the release commit to `main` with the `v<version>` tag and create
+  the GitHub Release, so a red run leaves no commit, tag or package behind. A version already on npm is not published
+  again, which makes a re-run finish a release that failed after its publish. npm accepts a trusted publisher only for
+  an existing package, so the first version was published from the maintainer's machine by `scripts/bootstrapNpm.sh`.
 - **Git:** one branch and one pull request per change, squash-merged to `main`, Conventional Commits
   (`.claude/skills/git-workflow/SKILL.md`). The nzyme pin moves with every task: `setup.sh` moves it in each worktree
   to the latest nzyme release, and the task's PR carries the bump. `.github/workflows/verify-submodules.yml`

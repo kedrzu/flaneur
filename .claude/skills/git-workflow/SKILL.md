@@ -3,7 +3,7 @@ name: git-workflow
 description: >-
     How a change moves in flaneur — one task, one Paseo worktree, one branch, one PR; kept up to date with main by
     merging, squash-merged on the owner's word; Conventional Commits; GitHub Issues as the tracker, stacked PRs through
-    GitHub's native stacks; releases by tag — all through git and `gh`. The dev pipeline (/dev:*) relies on it; reach
+    GitHub's native stacks; releases by one manual workflow — all through git and `gh`. The dev pipeline (/dev:*) relies on it; reach
     for it whenever you open a branch, commit, push, catch up with main, open or describe a PR, build a PR stack, merge
     or release.
 ---
@@ -169,17 +169,14 @@ Only on the owner's word — it is irreversible and lands on `main`.
 
 Only on the owner's word — it publishes to npm, which cannot be undone.
 
-1. A PR (`chore(release): v<version>`) sets `version` in `packages/flaneur/package.json`; it lands like any other.
-2. Tag the merged commit and push the tag; `.github/workflows/release.yml` builds, tests and publishes:
-   ```bash
-   git fetch origin main
-   git tag v<version> origin/main
-   git push origin v<version>
-   gh run list --workflow release.yml --limit 1
-   ```
-   The workflow refuses a tag that does not match the package's version, and skips the publish of a version already on
-   npm.
+No release PR and no hand-made tag: `.github/workflows/release.yml` bumps the version, builds, tests and publishes
+`main`, and only after the publish pushes `chore(release): v<version>` to `main` with its tag and the GitHub Release.
 
-The first version is the exception: npm sets a trusted publisher only for a package that exists, so the owner runs
-`bash scripts/bootstrapNpm.sh` on their machine, with npm's second factor. It publishes from `origin/main`, sets the
-trusted publisher and pushes the tag; nothing for an agent to run.
+```bash
+gh workflow run release.yml --ref main -f version=<patch|minor|major|x.y.z>
+gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+```
+
+- **Red before the publish:** nothing was pushed or published. Fix it through a normal PR, then run the workflow again.
+- **Red after the publish** (the push or the GitHub Release): run it again with the same input; it skips the publish
+  of a version already on npm and finishes the tag and the Release.
