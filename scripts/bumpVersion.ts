@@ -4,6 +4,7 @@
  * package, `scripts/pluginVersions.test.ts`). Run by `.github/workflows/release.yml`.
  *
  * Usage: `bun scripts/bumpVersion.ts <patch|minor|major|x.y.z>`. Prints the new version on stdout.
+ * An exact version must be greater than the current one: a release never goes back.
  * The files are edited as text, one `version` value each, so their formatting is untouched.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -50,11 +51,15 @@ function nextVersion(from: string, bump: string) {
             return `${major}.${minor + 1}.0`;
         case 'patch':
             return `${major}.${minor}.${patch + 1}`;
-        default:
+        default: {
             if (!SEMVER.test(bump)) {
                 throw new Error(`Expected patch, minor, major or x.y.z, got "${bump}".`);
             }
+            if (Bun.semver.order(bump, from) !== 1) {
+                throw new Error(`The version ${bump} is not greater than the current ${from}.`);
+            }
             return bump;
+        }
     }
 }
 

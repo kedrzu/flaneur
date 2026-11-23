@@ -49,19 +49,21 @@ the entry's `version` changes, so the skill reaches OpenCode users with a releas
 - **Checks:** `bun run typecheck`, `bun run lint:check`, `bun run format:check` and `bun run tests`
   (`tests:full` for every test). CI runs all four, with `tests:full`, on every pull request
   and every push to `main` (`.github/workflows/build.yml`, required check `Build`).
-- **Release:** one manual run of `.github/workflows/release.yml` on `main`. It sets the version
-  (`scripts/bumpVersion.ts`) and commits it on the runner; builds, typechecks and tests that commit; packs it with
-  `scripts/packRelease.sh` (`bun pm pack`, which rewrites `workspace:*` to real versions, and
-  `scripts/checkPackedRelease.sh`: the pinned `@nzyme/*` source equals each package's nzyme release tag, and the
-  tarball installs from npm and loads on Node); publishes the tarball with `npm publish --provenance` through npm
-  trusted publishing (OIDC). Only then does it push the release commit to `main` with the `v<version>` tag and create
-  the GitHub Release, so a red run leaves no commit, tag or package behind. A version already on npm is not published
-  again, which makes a re-run finish a release that failed after its publish. npm accepts a trusted publisher only for
-  an existing package, so the first version was published from the maintainer's machine by `scripts/bootstrapNpm.sh`.
+- **Release:** one manual run of `.github/workflows/release.yml` on `main`, whose header comment is the full
+  description. It sets the version (`scripts/bumpVersion.ts`) and commits it on the runner; builds, typechecks and
+  tests that commit; packs it with `scripts/packRelease.sh` (`bun pm pack`, which rewrites `workspace:*` to real
+  versions, and `scripts/checkPackedRelease.sh`: the pinned `@nzyme/*` source equals each package's nzyme release tag,
+  and the tarball installs from npm and loads on Node). It then pushes the release commit and the `v<version>` tag to
+  `main` in one atomic push, publishes the tarball with `npm publish --provenance` through npm trusted publishing
+  (OIDC), and creates the GitHub Release. A red run before the push leaves nothing behind; a tag with no package on npm
+  is a release to finish, which a re-run or a new dispatch does without publishing twice. The push uses a deploy key,
+  the only bypass actor of the rulesets on `main` and on `v*` tags (`GITHUB_TOKEN` cannot be one). Provenance records
+  the run's commit, not the tag. npm accepts a trusted publisher only for an existing package, so the first version
+  was published from the maintainer's machine by `scripts/bootstrapNpm.sh`.
 - **Git:** one branch and one pull request per change, squash-merged to `main`, Conventional Commits
-  (`.claude/skills/git-workflow/SKILL.md`). The nzyme pin moves with every task: `setup.sh` moves it in each worktree
+  (`.claude/skills/git-workflow/SKILL.md`). A ruleset makes the pull request and the `Build` check mandatory on `main`. The nzyme pin moves with every task: `setup.sh` moves it in each worktree
   to the latest nzyme release, and the task's PR carries the bump. `.github/workflows/verify-submodules.yml`
-  checks that every pin is on nzyme `main`.
+  checks that every pin is on nzyme `main` and is the commit of a release tag.
 - **Agents:** `CLAUDE.md`, the skills under `.claude/skills/`.
 
 ## Decisions
@@ -76,5 +78,5 @@ the entry's `version` changes, so the skill reaches OpenCode users with a releas
 - **No scheduled nzyme bump; `setup.sh` moves the pin to the latest nzyme release in every worktree.** The published
   `flaneur` depends on the `@nzyme/*` versions of the pin, so the pinned code must be what npm serves under those
   versions: a pin on unreleased nzyme `main` would be tested against code no user installs. Bumping in each task keeps
-  the pin current, and the agent fixes what a new release breaks inside that task's PR. A pin ahead of the latest
-  release (an nzyme change the package needs) is allowed, but `flaneur` is not published until nzyme releases it.
+  the pin current, and the agent fixes what a new release breaks inside that task's PR. The pin is always an nzyme release
+  tag, enforced by `verify-submodules.yml`: an nzyme change the package needs is released in nzyme first, then pinned.

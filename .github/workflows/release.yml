@@ -1,27 +1,48 @@
-# Releases `flaneur` (packages/flaneur) from `main`, run by hand (Actions → Release → Run workflow).
+# Releases `flaneur` (packages/flaneur) from `main`, run by hand (Actions → Release → Run workflow) with
+# the input `version`: patch, minor, major or an exact x.y.z.
 #
-# One run does the whole release, and nothing leaves the runner until everything is green:
-# 1. sets the version (scripts/bumpVersion.ts) and commits `chore(release): v<version>` locally;
-# 2. builds, typechecks, tests and packs that commit;
-# 3. publishes it to npm;
-# 4. only then pushes the commit to `main` with the `v<version>` tag on it, and creates the GitHub
-#    Release.
-# A failure before step 3 leaves no trace: fix it on `main` and run the workflow again. A failure after
-# the publish is fixed by running it again with the same input: `main` still has the old version, so
-# the bump yields the same one, which is on npm already, so the run skips the publish and only tags.
+# Order: bump → build, typecheck, tests and pack on the runner → push the release commit and its tag to
+# `main` → publish to npm → GitHub Release. Nothing reaches npm before the tested commit is on `main`
+# under its tag. The push is a plain one: when `main` moved since the dispatch it is rejected and the run
+# ends before publishing; run it again. The run never merges or rebases to get around it.
 #
-# Authentication is npm trusted publishing (OIDC, `id-token: write`) with provenance: no token is
-# stored. The trusted publisher is bound to this file's name, so it must stay `release.yml`. npm
-# accepts a trusted publisher for an existing package only, so the first version was published from
-# the maintainer's machine by scripts/bootstrapNpm.sh, which also set the publisher.
+# Jobs:
+# - state: reads X, the version in packages/flaneur/package.json at the dispatched commit, and decides:
+#   | tag vX | flaneur@X on npm | the run                                                             |
+#   |--------|------------------|---------------------------------------------------------------------|
+#   | yes    | yes              | new release: prepare, then publish                                  |
+#   | yes    | no               | resume: publish vX, skip prepare; a patch/minor/major input is ignored |
+#   | yes    | no, input x.y.z  | abandon X: a new release of x.y.z; vX stays a tag with no package   |
+#   | no     | -                | fails: the version was changed outside this workflow                |
+#   It also creates a missing GitHub Release for a published X.
+# - prepare (new release): bumps (scripts/bumpVersion.ts, which requires the new version > X), checks
+#   that the new version is neither tagged nor on npm, commits `chore(release): vNEW`, builds, tests and
+#   packs it, then pushes the commit and the tag vNEW to `main` in one atomic push.
+# - publish: checks out the tag, packs it and publishes it unless it is on npm already, then creates the
+#   GitHub Release unless it exists. No tests: the commit passed them in prepare before reaching `main`.
+#
+# A tag with no package on npm is a release still to be finished. Retrying:
+# - publish failed: "Re-run failed jobs" on the same run, or a new dispatch (state resumes; this also
+#   works after the workflow itself was fixed through a PR). Both steps of publish skip what is done, so
+#   nothing is published twice and nothing is bumped twice.
+# - X cannot be published because of its code: fix it on `main` and dispatch with an exact version > X.
+# - prepare failed before its push: nothing left the runner; fix `main` and dispatch again.
+# A cancelled run does not publish.
+#
+# The push uses the deploy key in the `RELEASE_DEPLOY_KEY` secret: the rulesets on `main` and on the
+# `v*` tags list it as their only bypass actor, which the workflow token cannot be. That push triggers
+# build.yml on `main`. Checkouts stay on HTTPS with the workflow token.
+#
+# Authentication to npm is trusted publishing (OIDC, `id-token: write`) with provenance: no token is
+# stored. The trusted publisher is bound to this file's name, so it must stay `release.yml`. npm accepts
+# a trusted publisher for an existing package only, so the first version was published from the
+# maintainer's machine by scripts/bootstrapNpm.sh, which also set the publisher. Known limitation: the
+# provenance records the run's commit (`main` at dispatch, before the bump), not the tagged commit.
 #
 # The package depends on `@nzyme/*` as `workspace:*`. `bun pm pack` rewrites those to the exact
 # versions of the pinned nzyme packages, which must therefore be on npm already, with the same source
 # as the pin (scripts/packRelease.sh checks both through scripts/checkPackedRelease.sh); `npm publish`
 # then uploads that tarball, since bun cannot publish through OIDC.
-#
-# The push to `main` is made with the workflow token, so it does not trigger build.yml: this run has
-# built and tested the release commit itself.
 
 name: Release
 
@@ -40,37 +61,90 @@ concurrency:
 permissions:
   contents: read
 
+# An explicit `bash` runs with `-o pipefail`: a failing `scripts/packRelease.sh | tail -1` fails the step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  release:
-    name: Release
+  state:
+    name: Resolve the release state
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     permissions:
-      # The release commit, the tag and the GitHub Release.
+      # A missing GitHub Release for a published version.
       contents: write
-      # Trusted publishing (OIDC) and npm provenance.
-      id-token: write
+    outputs:
+      mode: ${{ steps.state.outputs.mode }}
+      version: ${{ steps.state.outputs.version }}
     env:
-      CI: 'true'
       GH_TOKEN: ${{ github.token }}
-    # An explicit `bash` runs with `-o pipefail`: a failing `scripts/packRelease.sh | tail -1` fails the step.
-    defaults:
-      run:
-        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: recursive
-          # The final push may have to merge commits that reached `main` during the run.
+          ref: ${{ github.sha }}
+
+      - name: Resolve the state
+        id: state
+        env:
+          BUMP: ${{ inputs.version }}
+        run: |
+          version=$(jq -r .version packages/flaneur/package.json)
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            :
+          else
+            status=$?
+            # 2 is "no such ref"; anything else is a failure to ask.
+            [ "$status" -eq 2 ] || exit "$status"
+            echo "::error::v$version is not tagged: the version was changed outside the Release workflow. Set it back to the last tagged version."
+            exit 1
+          fi
+
+          # Assigned first: a failing check inside `[ ]` would not stop the step.
+          on_npm=$(bash scripts/isOnNpm.sh "$version")
+          if [ "$on_npm" = true ]; then
+            if ! gh release view "v$version" > /dev/null 2>&1; then
+              gh release create "v$version" --verify-tag --title "v$version" --generate-notes
+            fi
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+          elif [[ "$BUMP" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$BUMP" != "$version" ]]; then
+            # prepare rejects a version that is not greater than X.
+            echo "::notice::v$version is tagged but not on npm: abandoning it for $BUMP."
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+          else
+            if [ "$BUMP" != "$version" ]; then
+              echo "::notice::v$version is tagged but not on npm: finishing its release, the input $BUMP is ignored."
+            fi
+            echo "mode=resume" >> "$GITHUB_OUTPUT"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+          fi
+
+  prepare:
+    name: Build, test and push the release commit
+    needs: state
+    if: needs.state.outputs.mode == 'release'
+    runs-on: ubuntu-latest
+    # The push authenticates with the deploy key, not the workflow token.
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.push.outputs.version }}
+    env:
+      CI: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          submodules: recursive
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
 
-      # npm >= 11.5.1 is required for trusted publishing.
       - name: Setup node
         uses: actions/setup-node@v5
         with:
@@ -84,12 +158,16 @@ jobs:
         run: |
           version=$(bun scripts/bumpVersion.ts "$BUMP")
           if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
-            echo "::error::v$version is tagged already: choose another version."
+            echo "::error::v$version is tagged already (an earlier run pushed it): dispatch the workflow again to finish that release, or choose another version."
             exit 1
+          else
+            status=$?
+            [ "$status" -eq 2 ] || exit "$status"
           fi
-          if [ -n "$(npm view "flaneur@$version" version 2> /dev/null)" ]; then
-            echo "::notice::flaneur@$version is on npm already (an earlier run published it): not publishing it again."
-            echo "on-npm=true" >> "$GITHUB_OUTPUT"
+          on_npm=$(bash scripts/isOnNpm.sh "$version")
+          if [ "$on_npm" = true ]; then
+            echo "::error::flaneur@$version is on npm already: choose another version."
+            exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -99,8 +177,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # An exact version equal to the current one changes nothing: the release is `main` as it is.
-          git diff --quiet || git commit -qam "chore(release): v$VERSION"
+          git commit -qam "chore(release): v$VERSION"
 
       - name: Build
         run: bash setup.build.sh
@@ -115,29 +192,93 @@ jobs:
       # Also checks the tarball against npm: the tests ran on the pinned nzyme source, users install
       # `@nzyme/*` from npm, and the release stops when the two differ or a version is not on npm.
       - name: Pack
+        run: bash scripts/packRelease.sh "$RUNNER_TEMP" | tail -1
+
+      # One atomic, non-force push: the commit and the tag land together or not at all, and a `main` that
+      # moved since the dispatch rejects it. GitHub's host key is pinned (from
+      # https://api.github.com/meta) rather than trusted on first use; if GitHub rotates it, the push
+      # fails, before anything is published, until the key here is updated.
+      - name: Push the release commit and the tag
+        id: push
+        env:
+          DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "::error::The RELEASE_DEPLOY_KEY secret is not set: the release cannot be pushed to main."
+            exit 1
+          fi
+          ssh_dir=$(mktemp -d "$RUNNER_TEMP/release-ssh.XXXXXX")
+          trap 'rm -rf "$ssh_dir"' EXIT
+          (umask 077 && printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/key")
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > "$ssh_dir/known_hosts"
+
+          git tag "v$VERSION"
+          GIT_SSH_COMMAND="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o StrictHostKeyChecking=yes" \
+            git push --atomic "git@github.com:$REPOSITORY.git" HEAD:refs/heads/main "refs/tags/v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish v${{ needs.prepare.outputs.version || needs.state.outputs.version }}
+    needs: [state, prepare]
+    if: >-
+      !cancelled() && needs.state.result == 'success'
+      && (needs.state.outputs.mode == 'resume' || needs.prepare.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      # The GitHub Release.
+      contents: write
+      # Trusted publishing (OIDC) and npm provenance.
+      id-token: write
+    env:
+      CI: 'true'
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version || needs.state.outputs.version }}
+    steps:
+      # The tag, not a branch: the published code is the commit prepare tested.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: refs/tags/v${{ env.VERSION }}
+          submodules: recursive
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      # npm >= 11.5.1 is required for trusted publishing.
+      - name: Setup node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm install -g npm@latest
+
+      - name: Build
+        run: bash setup.build.sh
+
+      - name: Pack
         id: pack
         run: |
           tarball=$(bash scripts/packRelease.sh "$RUNNER_TEMP" | tail -1)
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
 
       - name: Publish to npm
-        if: steps.version.outputs.on-npm != 'true'
-        run: npm publish "${{ steps.pack.outputs.tarball }}" --provenance --access public
-
-      # The tag marks the commit that was tested and published. When `main` moved during the run, the
-      # release commit is merged with it and the merge goes to `main`; the tag stays on the release commit.
-      - name: Push the release commit and the tag
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          TARBALL: ${{ steps.pack.outputs.tarball }}
         run: |
-          git tag "v$VERSION"
-          git fetch origin main
-          if ! git merge-base --is-ancestor origin/main HEAD; then
-            git merge --no-edit origin/main
+          on_npm=$(bash scripts/isOnNpm.sh "$VERSION")
+          if [ "$on_npm" = true ]; then
+            echo "::notice::flaneur@$VERSION is on npm already (an earlier run published it): not publishing it again."
+          else
+            npm publish "$TARBALL" --provenance --access public
           fi
-          git push --atomic origin HEAD:refs/heads/main "refs/tags/v$VERSION"
 
       - name: Create the GitHub Release
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: gh release create "v$VERSION" --verify-tag --title "v$VERSION" --generate-notes
+        run: |
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "::notice::The GitHub Release v$VERSION exists already."
+          else
+            gh release create "v$VERSION" --verify-tag --title "v$VERSION" --generate-notes
+          fi

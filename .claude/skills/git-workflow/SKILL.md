@@ -16,7 +16,10 @@ Facts this rests on (checked 2026-11-18):
 
 - Remote `origin` = `https://github.com/kedrzu/flaneur.git` (public), main line `main`; `gh` is logged in as `kedrzu`.
 - `main` takes changes through pull requests only. `.claude/git.json` lists it in `protectedBranches`, so the `git`
-  plugin's hook blocks an agent's push to it. On GitHub, `Build` (`.github/workflows/build.yml`) is the merge gate.
+  plugin's hook blocks an agent's push to it. GitHub enforces it with a ruleset on `main`: a pull request is required,
+  `Build` (`.github/workflows/build.yml`) is a required status check, no force-push, no deletion. A second ruleset
+  forbids creating, updating or deleting `v*` tags. The only bypass actor of both is the release deploy key (see
+  Release); the owner merges through PRs too.
 - Tracker: GitHub Issues in the same repository. A task may have no issue.
 - Commit messages, PR titles, PR descriptions, issues and issue comments are in English.
 - Branch names: `<type>/<slug>`, with an issue `<type>/<N>-<slug>` (`feat/12-proxy-auth`).
@@ -94,8 +97,8 @@ git push -u origin HEAD     # first push; later just `git push`
 - **Push rejected** (the remote branch moved): `git pull --no-rebase`, then push again. Never `--force`.
 - **Submodule (`nzyme`) moved:** the nzyme commit must be on `kedrzu/nzyme` before the flaneur commit that pins it is
   pushed — push the nzyme branch first (`git -C nzyme push -u origin HEAD`) and open its PR there (its own conventions:
-  `nzyme/CLAUDE.md`). A flaneur PR may not land while its pin is reachable only from an nzyme feature branch: it must be
-  on nzyme `main` (`nzyme/docs/consumers.md`; `Verify Submodules` fails otherwise).
+  `nzyme/CLAUDE.md`). A flaneur PR may not land while its pin is not the commit of an nzyme release tag, which is
+  also on nzyme `main` (`nzyme/docs/consumers.md`; `Verify Submodules` fails otherwise): release in nzyme first, then pin.
 
 ## Publish
 
@@ -169,14 +172,37 @@ Only on the owner's word — it is irreversible and lands on `main`.
 
 Only on the owner's word — it publishes to npm, which cannot be undone.
 
-No release PR and no hand-made tag: `.github/workflows/release.yml` bumps the version, builds, tests and publishes
-`main`, and only after the publish pushes `chore(release): v<version>` to `main` with its tag and the GitHub Release.
+No release PR and no hand-made tag: `.github/workflows/release.yml` does it all; its header comment is the full
+description (states, jobs, retries). Order: bump, then build, typecheck, tests and pack on the runner, then one atomic
+push of `chore(release): v<version>` and the tag `v<version>` to `main`, then `npm publish`, then the GitHub Release
+(generated notes). The push triggers `build.yml` on `main`.
 
 ```bash
 gh workflow run release.yml --ref main -f version=<patch|minor|major|x.y.z>
 gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
 ```
 
-- **Red before the publish:** nothing was pushed or published. Fix it through a normal PR, then run the workflow again.
-- **Red after the publish** (the push or the GitHub Release): run it again with the same input; it skips the publish
-  of a version already on npm and finishes the tag and the Release.
+- **Red before the push** (bump, build, tests, pack, or the push rejected because `main` moved since the dispatch):
+  nothing left the runner. Fix it through a normal PR (a moved `main` needs no fix), then dispatch again.
+- **Red after the push:** "Re-run failed jobs" on the run finishes it, skipping what already exists. A new dispatch does
+  too while the tag `v<X>` has no package on npm (a release to finish); once the package is there, a dispatch only adds
+  the missing GitHub Release on its way to the next version.
+- **Abandoning a version:** when X cannot be published because of its code, fix it on `main` and dispatch with an exact
+  version greater than X. The tag `vX` stays, without a package.
+- **Provenance** records the run's commit (`main` at dispatch, before the bump), not the tag: do not promise otherwise.
+
+### Rulesets and the deploy key
+
+The rulesets (see Facts) list the release deploy key as their only bypass actor, because `GITHUB_TOKEN` cannot be one.
+The private half lives only in the repo secret `RELEASE_DEPLOY_KEY`; the public half is a write deploy key of the repo.
+Rotate it:
+
+```bash
+ssh-keygen -t ed25519 -N '' -C release -f "$TMPDIR/release-key"
+gh repo deploy-key add "$TMPDIR/release-key.pub" --allow-write --title "release"
+gh secret set RELEASE_DEPLOY_KEY < "$TMPDIR/release-key"
+```
+
+The ruleset bypass actor type `DeployKey` has no id: it covers the repo's deploy keys as a class, so a new key needs no
+change when the ruleset already lists it (verify in the ruleset's bypass list). Then delete the old deploy key
+(`gh repo deploy-key list`, `gh repo deploy-key delete <id>`) and the local `$TMPDIR/release-key*` files.
