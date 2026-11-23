@@ -2,13 +2,29 @@
   <img alt="flaneur" src="https://raw.githubusercontent.com/kedrzu/flaneur/main/docs/brand/lockup.svg" height="96">
 </h1>
 
-> *flâneur* (n.): one who strolls the city, watching everything and noticed by no one.
+<p align="center"><strong>A stealth Chrome for AI agents: browses like a person, never looks like a bot.</strong></p>
 
-A stealth Chrome for AI agents, driven over the Chrome DevTools Protocol (CDP). It is the same ordinary browser
-every day: a real Chrome with a persistent profile, launched over a pipe so no other local process can reach it, and
-a proxy in front of it that keeps the client's code out of what page scripts can observe. Nothing is spoofed but the
-Chromium brand: every page and worker names itself Google Chrome, as the installed Chrome would. Why the API looks as
-it does: [`docs/decisions/package-api.md`](../../docs/decisions/package-api.md).
+<p align="center">
+  <a href="https://www.npmjs.com/package/flaneur"><img alt="npm" src="https://img.shields.io/npm/v/flaneur?color=mediumvioletred"></a>
+  <a href="https://github.com/kedrzu/flaneur/actions/workflows/build.yml"><img alt="Build" src="https://github.com/kedrzu/flaneur/actions/workflows/build.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/kedrzu/flaneur/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/kedrzu/flaneur?color=mediumvioletred"></a>
+  <img alt="Node.js 22+ and Bun" src="https://img.shields.io/badge/runs%20on-Node.js%2022%2B%20%C2%B7%20Bun-mediumvioletred">
+</p>
+
+A real Chrome with a persistent profile, driven over the Chrome DevTools Protocol (CDP), launched over a pipe so no
+other local process can reach it. Why the API looks as it does:
+[`docs/decisions/package-api.md`](../../docs/decisions/package-api.md).
+
+- **Nothing spoofed but the brand:** every page and worker names itself Google Chrome, as the installed Chrome would.
+- **A driver pages cannot see:** a proxy keeps the client's code out of what page scripts can observe
+  ([The price of isolation](#the-price-of-isolation)).
+- **Human input and pace:** clicks, typing and scrolling reach pages as a person's ([Human input](#human-input)), and
+  each site gets at most one page load every 5 s ([CLI](#cli)).
+- **Your own Chrome:** drive the browser you are signed in to, through an extension ([Your own Chrome](#your-own-chrome)).
+- **A VPN for the browser only** ([Through a VPN](#through-a-vpn)), and pages that stay in the background
+  ([In the background](#in-the-background)).
+- **Any CDP client:** stock [Playwright](#with-playwright), [agent-browser](#with-agent-browser), or the
+  [library](#library).
 
 Tested on 41 real sites behind Cloudflare, Akamai, HUMAN, DataDome, Kasada, AWS WAF, Imperva, Amazon and Google, each
 errand (search, product, guest cart) run twice, driven by stock Playwright and, on 14 of them, by agent-browser: every
