@@ -12,8 +12,7 @@ it does: [`docs/decisions/package-api.md`](../../docs/decisions/package-api.md).
 
 Tested on 41 real sites behind Cloudflare, Akamai, HUMAN, DataDome, Kasada, AWS WAF, Imperva, Amazon and Google, each
 errand (search, product, guest cart) run twice, driven by stock Playwright and, on 14 of them, by agent-browser: every
-one completes without a challenge but one site's, which answers with its own error page, while a headless Chromium is challenged on
-22 of the errands it runs.
+one completes without a challenge, while a headless Chromium is challenged on 22 of the errands it runs.
 [What it has been tested against](https://github.com/kedrzu/flaneur#what-it-has-been-tested-against).
 
 Runs on Node.js 22+ and Bun.

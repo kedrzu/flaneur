@@ -65,16 +65,19 @@ in Poland, Chrome for Testing 157.
 |Akamai|kohls.com, zalando.pl, zara.com, sephora.pl, euro.com.pl, hm.com, asos.com, lowes.com|all pass|kohls, zara, sephora, hm, asos, lowes|
 |HUMAN|walmart.com, zillow.com, gamestop.com, skyscanner.pl, homedepot.com, fiverr.com|all pass|zillow, skyscanner, fiverr|
 |DataDome|vinted.pl, etsy.com, tripadvisor.com, airbnb.pl, leroymerlin.pl, seatgeek.com, leboncoin.fr|all pass|not run: a headless visit flags the IP with DataDome|
-|Kasada|realestate.com.au, nike.com, chewy.com, costco.com, otto.de|all pass but otto.de|realestate, otto|
+|Kasada|realestate.com.au, nike.com, chewy.com, costco.com, otto.de|all pass|realestate, otto|
 |AWS WAF|booking.com, redfin.com, ocado.com|all pass|none|
 |Imperva|hertz.com, xcite.com|all pass|hertz|
 |Amazon|amazon.pl|passes|none|
 |Google|google.com: two searches, and six in a row|passes|—|
 
 "Pass" is the errand completed with no challenge on both attempts of its latest run, through Playwright and, where
-it runs, agent-browser. otto.de answers with its own error page ("Hoppla! Das hat nicht geklappt") and no vendor marker, so
-whether it refuses flaneur or this connection is not known yet. Where the control passes too (x-kom, ikea, nike,
-gamestop, ocado, xcite, amazon), a pass proves less.
+it runs, agent-browser. Where the control passes too (x-kom, ikea, nike, gamestop, ocado, xcite, amazon), a pass
+proves less.
+
+A site can still mark one profile after many visits in a short time: otto.de (an error page, "Hoppla! Das hat nicht
+geklappt") and leroymerlin.pl (a DataDome challenge) did so to the eval's profile after a dozen runs of the same
+errand within an hour, while a fresh profile passed on the same connection minutes later.
 
 ### CAPTCHAs
 
