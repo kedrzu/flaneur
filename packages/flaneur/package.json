@@ -1,6 +1,6 @@
 {
     "name": "flaneur",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "A stealth Chrome for AI agents: browses like a person, never looks like a bot",
     "keywords": [
         "agent-browser",
