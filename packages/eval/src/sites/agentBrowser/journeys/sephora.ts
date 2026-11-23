@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { defineAgentBrowserJourney } from '../defineAgentBrowserJourney.js';
+import { emptyCart } from '../emptyCart.js';
 import { submitSearch } from '../submitSearch.js';
 
 const URL = 'https://www.sephora.pl/';
@@ -43,5 +44,13 @@ export const sephora = defineAgentBrowserJourney({
             await ab.click({ role: 'button', name: /^Zobacz koszyk$/ });
             await ab.waitForUrl(/\/koszyk/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(ab);
+            },
+            { optional: true },
+        );
     },
 });

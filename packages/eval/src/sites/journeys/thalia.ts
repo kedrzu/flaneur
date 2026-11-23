@@ -1,6 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.thalia.de/';
@@ -38,11 +40,12 @@ export const thalia = defineJourney({
             await expect(page).toHaveURL(/\/suche\?sq=/);
         });
         await step('open a book', async () => {
-            await page
-                .locator('a[href*="/artikeldetails/"]')
-                .filter({ hasText: /Zauberberg/ })
-                .first()
-                .click();
+            await clickResult(
+                page
+                    .locator('a[href*="/artikeldetails/"]')
+                    .filter({ hasText: /Zauberberg/ })
+                    .first(),
+            );
             await expect(page).toHaveURL(/\/artikeldetails\//);
         });
         await step('add to cart', async () => {
@@ -54,5 +57,13 @@ export const thalia = defineJourney({
             await expect(page).toHaveURL(/\/warenkorb/);
             await expect(page.getByRole('heading', { name: 'Warenkorb', level: 1 })).toBeVisible();
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

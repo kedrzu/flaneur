@@ -3,6 +3,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.leroymerlin.pl/';
@@ -36,11 +38,12 @@ export const leroymerlin = defineJourney({
             await expect(page).toHaveURL(/\/search\?q=wiertarka/);
         });
         await step('open a product', async () => {
-            await page
-                .locator('a[href*="/produkty/"][href$=".html"]')
-                .filter({ hasText: /Wiertarka/ })
-                .first()
-                .click();
+            await clickResult(
+                page
+                    .locator('a[href*="/produkty/"][href$=".html"]')
+                    .filter({ hasText: /Wiertarka/ })
+                    .first(),
+            );
             await expect(page.getByRole('button', { name: 'Dodaj do koszyka' }).first()).toBeVisible();
         });
         await step('add to cart', async () => {
@@ -52,5 +55,13 @@ export const leroymerlin = defineJourney({
             await expect(page).toHaveURL(/\/checkout\/cart/);
             await expect(page.getByRole('heading', { name: /Koszyk \([1-9]/ })).toBeVisible();
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

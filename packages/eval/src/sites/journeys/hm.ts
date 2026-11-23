@@ -1,6 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www2.hm.com/pl_pl/index.html';
@@ -34,11 +36,12 @@ export const hm = defineJourney({
             { optional: true },
         );
         await step('open a product', async () => {
-            await page
-                .locator('a[href*="/productpage."]')
-                .filter({ hasText: /sweter/i })
-                .first()
-                .click();
+            await clickResult(
+                page
+                    .locator('a[href*="/productpage."]')
+                    .filter({ hasText: /sweter/i })
+                    .first(),
+            );
             await expect(page).toHaveURL(/\/productpage\.\d+\.html/);
         });
         await step('choose a size', async () => {
@@ -54,5 +57,13 @@ export const hm = defineJourney({
             await page.getByRole('button', { name: /ZOBACZ KOSZYK \([1-9]/ }).click();
             await expect(page).toHaveURL(/\/cart/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

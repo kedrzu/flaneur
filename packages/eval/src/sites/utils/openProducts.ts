@@ -1,6 +1,8 @@
-import type { Page } from 'playwright/test';
+import type { Locator, Page } from 'playwright/test';
 
 import { assert } from '@nzyme/utils/assert.js';
+
+import { clickResult } from './clickResult.js';
 
 /** Two products opened from one listing, as a person compares them. */
 export interface ProductLinks {
@@ -10,11 +12,24 @@ export interface ProductLinks {
     openAnother(): Promise<void>;
 }
 
+/** How the product links of a listing are clicked. */
+export interface OpenProductsOptions {
+    /**
+     * The link covers the whole card and the card's own controls (colour swatches) sit over its centre: it is clicked
+     * where the product's image is, in the card's upper part.
+     */
+    clickImage?: boolean;
+}
+
+/** Where in a card-wide link its image is, as a share of the card's height from the top. */
+const IMAGE_AT = 0.25;
+
 /**
- * Opens two different products from a listing whose product links `selector` matches.
+ * Opens two different products from a listing whose product links `selector` matches, coming to each as
+ * `clickResult` does.
  * @util
  */
-export function openProducts(page: Page, selector: string): ProductLinks {
+export function openProducts(page: Page, selector: string, options: OpenProductsOptions = {}): ProductLinks {
     let firstHref: string | null = null;
 
     return { openFirst, openAnother };
@@ -22,14 +37,21 @@ export function openProducts(page: Page, selector: string): ProductLinks {
     async function openFirst() {
         const link = page.locator(selector).first();
         firstHref = await link.getAttribute('href');
-        await link.click();
+        await clickLink(link);
     }
 
     async function openAnother() {
         assert(firstHref != null, 'openAnother() before openFirst()');
-        await page
-            .locator(`${selector}:not([href=${JSON.stringify(firstHref)}])`)
-            .first()
-            .click();
+        await clickLink(page.locator(`${selector}:not([href=${JSON.stringify(firstHref)}])`).first());
+    }
+
+    async function clickLink(link: Locator) {
+        if (options.clickImage !== true) {
+            await clickResult(link);
+            return;
+        }
+        const box = await link.boundingBox();
+        assert(box != null, 'A product link with no box');
+        await clickResult(link, { position: { x: box.width / 2, y: box.height * IMAGE_AT } });
     }
 }

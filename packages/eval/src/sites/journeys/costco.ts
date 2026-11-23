@@ -3,6 +3,8 @@ import { expect } from 'playwright/test';
 import { assert } from '@nzyme/utils/assert.js';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.costco.com/';
@@ -33,15 +35,24 @@ export const costco = defineJourney({
             const name = await card.getByRole('heading', { level: 3 }).textContent();
             assert(name, 'A product card has no name');
             product = name.trim();
-            await card.getByRole('button', { name: 'Add to Cart' }).click();
+            await clickResult(card.getByRole('button', { name: 'Add to Cart' }));
             const added = page.getByRole('group').filter({ has: page.getByRole('heading', { name: product }) });
             await expect(added.getByText(/[1-9]\d* in Cart/)).toBeVisible();
         });
         await step('open the cart', async () => {
-            // The header's link names the count: "Cart, 1 item".
-            await page.getByRole('link', { name: /^Cart, [1-9]/ }).click();
+            // The header's link names the count ("Cart, 1 item"), or, before it caught up with the add, only "Cart"
+            // (2026-11-22): the card's "1 in Cart" already told the add.
+            await page.getByRole('link', { name: /^Cart(, [1-9]|$)/ }).click();
             await expect(page).toHaveURL(/\/CheckoutCart/);
             await expect(page.getByText(product).filter({ visible: true }).first()).toBeVisible();
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

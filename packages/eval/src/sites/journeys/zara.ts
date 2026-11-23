@@ -1,6 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.zara.com/pl/pl/';
@@ -28,7 +30,7 @@ export const zara = defineJourney({
             await expect(page).toHaveURL(/\/pl\/pl\/search\?searchTerm=/);
         });
         await step('open a product', async () => {
-            await page.locator('a.product-grid-product__link').first().click();
+            await clickResult(page.locator('a.product-grid-product__link').first());
             await expect(page).toHaveURL(/-p\d+\.html/);
         });
         await step('add to cart', async () => {
@@ -40,7 +42,7 @@ export const zara = defineJourney({
         });
         await step('choose a size', async () => {
             await page
-                .getByRole('button', { name: /^(XS|S|M|L|XL)$/ })
+                .getByRole('button', { name: /^(XS|S|M|L|XL)(-(S|M|L|XL|XXL))?$/ })
                 .first()
                 .click();
             await expect(page.getByRole('dialog').getByRole('heading', { name: 'Dodano do koszyka' })).toBeVisible();
@@ -49,5 +51,13 @@ export const zara = defineJourney({
             await page.getByRole('dialog').getByRole('button', { name: 'Zobacz koszyk' }).click();
             await expect(page).toHaveURL(/\/shop\/cart/);
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });

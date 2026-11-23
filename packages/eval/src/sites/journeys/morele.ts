@@ -1,6 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
+import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.morele.net/';
@@ -29,7 +31,7 @@ export const morele = defineJourney({
             await expect(page).toHaveURL(/\/wyszukiwarka\/\?q=/);
         });
         await step('open a product', async () => {
-            await page.locator('a.product-card__name-link').first().click();
+            await clickResult(page.locator('a.product-card__name-link').first());
             await expect(page.getByRole('button', { name: 'Do koszyka' }).first()).toBeVisible();
         });
         await step('add to cart', async () => {
@@ -38,5 +40,13 @@ export const morele = defineJourney({
             await expect(page).toHaveURL(/\/koszyk\//);
             await expect(page.getByText(/Twój koszyk \(1\)/)).toBeVisible();
         });
+        // The eval profile keeps its cart from run to run: what the journey added comes out again.
+        await step(
+            'empty the cart',
+            async () => {
+                await emptyCart(page);
+            },
+            { optional: true },
+        );
     },
 });
