@@ -1,6 +1,7 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { clickResult } from '../utils/clickResult.js';
 
 const URL = 'https://www.skyscanner.pl/';
 
@@ -42,11 +43,12 @@ export const skyscanner = defineJourney({
         );
         await step('open a result', async () => {
             // A result is a card whose "Sprawdź" button opens it; an ad's opens the airline's site in a new window.
-            await page
-                .getByRole('link', { name: /^Opcja \d+: (?!Reklama)/ })
-                .first()
-                .getByRole('button', { name: /^Wybierz opcję lotu \d+$/ })
-                .click();
+            await clickResult(
+                page
+                    .getByRole('link', { name: /^Opcja \d+: (?!Reklama)/ })
+                    .first()
+                    .getByRole('button', { name: /^Wybierz opcję lotu \d+$/ }),
+            );
             await expect(page).toHaveURL(/\/(config|itinerary)\//);
             await expect(page.getByText(/\d\s?zł/).first()).toBeVisible({ timeout: 60_000 });
         });
