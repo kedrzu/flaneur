@@ -1,5 +1,7 @@
+import { AgentBrowserError } from '../../createAgentBrowserCli.js';
 import {
     CART_RENDER_MS,
+    CLOSE_CART_PANEL,
     MAX_CART_REMOVALS,
     ONE_LESS_IN_CART,
     REMOVE_FROM_CART,
@@ -31,10 +33,32 @@ export async function emptyCart(ab: AgentBrowser) {
             return;
         }
         const before = await readSnapshot();
-        await ab.click(target.ref);
+        await clickPastPanel(ab, target.ref);
         if (!(await waitForChange(readSnapshot, before))) {
             return;
         }
+    }
+}
+
+/**
+ * Clicks a cart line's control; when agent-browser refuses it as covered and the cart shows a side panel's close, closes
+ * the panel and clicks again, as an agent does with the covering element the refusal names. A closed panel's control
+ * may stay in the snapshot, so the panel is closed only after a refusal.
+ */
+async function clickPastPanel(ab: AgentBrowser, ref: string) {
+    try {
+        await ab.withActionTimeout(SETTLE_MS, () => ab.click(ref));
+    } catch (error) {
+        if (!(error instanceof AgentBrowserError) || !error.coveredTarget) {
+            throw error;
+        }
+        const { elements } = await ab.snapshot();
+        const close = elements.find(({ role, name }) => role === 'button' && CLOSE_CART_PANEL.test(name));
+        if (close == null) {
+            throw error;
+        }
+        await ab.click(close.ref);
+        await ab.click(ref);
     }
 }
 

@@ -1,7 +1,7 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
+import { clickFollowingTab } from '../utils/clickFollowingTab.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.tripadvisor.com/';
@@ -28,14 +28,17 @@ export const tripadvisor = defineJourney({
             await expect(page).toHaveURL(/\/(Tourism-|Search\?)/);
         });
         await step('open a result', async () => {
-            await clickResult(
+            // A result opens in a new tab in one layout and in the same tab in another.
+            const result = await clickFollowingTab(
                 page
                     .locator(
                         'a[href*="/Attraction_Review-"], a[href*="/Hotel_Review-"], a[href*="/Restaurant_Review-"]',
                     )
                     .first(),
+                step,
             );
-            await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+            await expect(result).toHaveURL(/\/(Attraction|Hotel|Restaurant)_Review-/);
+            await expect(result.getByRole('heading', { level: 1 }).first()).toBeVisible();
         });
     },
 });

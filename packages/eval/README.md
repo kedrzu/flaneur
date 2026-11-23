@@ -69,7 +69,9 @@ bun run eval:sites:selftest                        # the suite's own check, on l
   in a row, each with a result opened and left, to see after how many Google shows `/sorry/`. `--grep-invert @long`
   leaves them out.
 - **CAPTCHA checks** (`captcha.spec.ts`, tag `@captcha`): the reCAPTCHA v3 score of the 2captcha and antcpt demos must
-  reach 0.7, a lower one fails as `challenged`; Google's reCAPTCHA v2 demo checkbox must tick without an image challenge (never solved, never submitted);
+  reach 0.7, a lower one fails as `challenged`; Google's reCAPTCHA v2 demo checkbox must tick without an image challenge (never solved, never submitted). Its verdict follows the IP's reputation: on 2026-11-23 the
+  demo showed the image challenge to a person in their own Chrome on the eval's IP too, so a `challenged` there measures
+  the connection, not flaneur (the test carries an `ip-dependent` annotation);
   nowsecure.nl must load past Cloudflare. A score is the `score` column of the table. Turnstile's demo (a key that
   always passes) and hCaptcha's (no readable verdict) tell nothing.
 - **Never:** a journey does not log in, create an account, submit a form other than the site's search, enter checkout

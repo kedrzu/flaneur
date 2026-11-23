@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -29,7 +28,7 @@ export const xkom = defineJourney({
             await expect(page.locator('#listing-container a[href*="/p/"]').first()).toBeVisible();
         });
         await step('open a product', async () => {
-            await clickResult(page.locator('#listing-container a[href*="/p/"]').first());
+            await page.locator('#listing-container a[href*="/p/"]').first().click();
             await expect(page).toHaveURL(/\/p\/\d+-/);
         });
         await step(

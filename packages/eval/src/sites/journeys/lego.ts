@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { makeRoomInCart } from '../utils/makeRoomInCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
@@ -45,7 +44,7 @@ export const lego = defineJourney({
             { optional: true },
         );
         await step('open a set', async () => {
-            await clickResult(page.locator('a[href*="/product/"]').filter({ hasText: /Sokół/ }).first());
+            await page.locator('a[href*="/product/"]').filter({ hasText: /Sokół/ }).first().click();
             await expect(page).toHaveURL(/\/product\//);
         });
         await step('make room in the cart', async () => {

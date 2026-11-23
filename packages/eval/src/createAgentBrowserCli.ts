@@ -38,15 +38,24 @@ const AGENT_BROWSER_TIMEOUT_MS = 60_000;
 const MISSING_TARGET =
     /^(Element not found|No element found|Unknown ref|Could not locate element)|, but none match name /;
 
+/**
+ * The error agent-browser fails a click with when another element lies at the target's click point: a panel over it,
+ * or the page re-rendered the target between the ref's lookup and the hit test.
+ */
+const COVERED_TARGET = /^Element '[^']*' is covered by /;
+
 /** An agent-browser command that failed, with agent-browser's own message. */
 export class AgentBrowserError extends Error {
     /** The command failed because its target is not on the page (yet): nothing was done. */
     readonly missingTarget: boolean;
+    /** The click was refused because something else lies at the target's click point: nothing was done. */
+    readonly coveredTarget: boolean;
 
     constructor(command: string, message: string) {
         super(`agent-browser ${command}: ${message}`);
         this.name = 'AgentBrowserError';
         this.missingTarget = MISSING_TARGET.test(message);
+        this.coveredTarget = COVERED_TARGET.test(message);
     }
 }
 

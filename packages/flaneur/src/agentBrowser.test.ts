@@ -97,7 +97,11 @@ beforeAll(async () => {
         executablePath: chromium.executablePath(),
         userDataDir,
         args: BROWSER_ARGS,
-        input: createHumanInput({ minTimeOnPageMs: 300, maxTimeOnPageMs: 600 }),
+        input: createHumanInput({
+            minTimeOnPageMs: 300,
+            maxTimeOnPageMs: 600,
+            logger: createTestLogger('HumanInput').logger,
+        }),
         pace: createSitePace({ intervalMs: 0 }),
         logger: createTestLogger('StealthBrowser').logger,
     });
@@ -161,6 +165,23 @@ test.skipIf(unsupported)(
     TIMEOUT_MS,
 );
 
+test.skipIf(unsupported)(
+    "a click from the header's search box lands on a result under a mega menu its way opened",
+    async () => {
+        const agent = openAgent();
+        try {
+            await agent.run('open', `${site.url}menu`);
+            await agent.run('click', '#search');
+            await agent.run('click', '#result');
+
+            expect(await agent.read('done')).toEqual(['search', 'result']);
+        } finally {
+            await agent.close();
+        }
+    },
+    TIMEOUT_MS,
+);
+
 /** An agent-browser session on the served browser. */
 function openAgent() {
     assert(executable != null, 'agent-browser is installed');
@@ -202,9 +223,31 @@ function isReply(reply: unknown): reply is { data: { result?: unknown } } {
     return typeof reply === 'object' && reply !== null && 'data' in reply && typeof reply.data === 'object';
 }
 
-/** Serves the detector page on `127.0.0.1`. */
+/**
+ * Serves the detector page on `127.0.0.1`; at `/menu`, a header with a search box over a department bar, whose hover
+ * opens a mega menu over a result below.
+ */
 async function servePage() {
-    const server = createServer((_request, response) => {
+    const server = createServer((request, response) => {
+        if (request.url === '/menu') {
+            response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<!doctype html><html><body>
+                <style>#menu { display: none } #bar:hover #menu { display: block }</style>
+                <input id="search" style="position:absolute;left:400px;top:10px;width:200px;height:28px">
+                <nav id="bar" style="position:absolute;left:0;top:50px;width:100%;height:60px;z-index:1">
+                    Departments
+                    <div id="menu" style="position:absolute;left:0;top:60px;width:100%;height:360px;background:#ccc">
+                        Mega menu
+                    </div>
+                </nav>
+                <a id="result" href="#result" style="position:absolute;left:40px;top:150px;width:300px;height:40px">
+                    Hammer
+                </a>
+                <pre id="trace" hidden></pre>
+                <pre id="done" hidden></pre>
+                <script>${DETECTOR_SCRIPT}</script>
+            </body></html>`);
+            return;
+        }
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<!doctype html><html><body>
             <button id="go">Go</button>
             <input id="name" aria-label="Name" value="old">

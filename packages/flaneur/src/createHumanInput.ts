@@ -75,6 +75,11 @@ interface PageState {
     cursor?: Point;
     /** The client's point the cursor stands for: a client aims at an element's centre, the cursor lands near it. */
     aimedAt?: Point;
+    /**
+     * The node at the client's point when it was first aimed at, before the cursor moved (`readHit`): what a press
+     * there should hit, and not a cover the cursor's way opened.
+     */
+    target?: number;
     /** When the last mouse event went. */
     lastMouseAt: number;
     /** When the last mouse button went down. */
@@ -108,6 +113,29 @@ interface Viewport {
     height: number;
 }
 
+/** A box in the viewport, in CSS pixels. */
+interface Box {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+}
+
+/**
+ * What is at a client's point now, against the node it aimed at (`CHECK_TARGET`): that node or one inside it; a node
+ * it is inside, as when the page moved; a cover over it, with the box the cover's whole stack spans; or nothing known.
+ */
+type TargetCheck = { relation: 'same' | 'beneath' | 'unknown' } | { relation: 'covered'; cover: Box };
+
+/** Where the cursor goes off a cover (`findEscape`). */
+interface EscapeParams {
+    cover: Box;
+    target: Point;
+    viewport: Viewport;
+    /** The how-manyth time the cursor moves off this cover, from 0: each goes to the next way out. */
+    attempt: number;
+}
+
 /** A text field a client's script means to focus or clear (`READ_FIELD`). */
 interface TextField {
     focused: boolean;
@@ -137,6 +165,13 @@ const DEFAULT_VIEWPORT: Viewport = { width: 1280, height: 720 };
 const MAX_AIM_ERROR_PX = 2.2;
 /** A client's point this close to the one it aimed at last is that one. */
 const SAME_POINT_PX = 0.5;
+/** How many times the cursor moves off a cover over its target before it presses anyway. */
+const MAX_COVER_ATTEMPTS = 3;
+/** How long a cover may take to close once the cursor is off it, checked at this interval. */
+const COVER_CLOSE_MS = 1500;
+const COVER_CHECK_INTERVAL_MS = 100;
+/** How far from the viewport's edge the cursor stays when it moves off a cover within the view. */
+const VIEWPORT_EDGE_PX = 10;
 /** A key event this soon after the previous one is a client typing, given a typist's interval. */
 const TYPING_GAP_MS = 40;
 const WHEEL_NOTCH_PX = 100;
@@ -169,6 +204,59 @@ const HITS_POINT = `function (x, y) {
 }`;
 
 /**
+ * Run on the node a client aimed at, in the proxy's isolated world, with the node now at its point: how the two relate
+ * (`TargetCheck`). The target is the nearest control around the node (a link, a button, a label…), which a click
+ * anywhere inside of activates and whose own hover may change what lies at the point (a product card's second image);
+ * a node the page has since replaced is not known. A pseudo-element stands for its element. A cover's box spans it and
+ * its ancestors up to the highest that does not hold the target: a mega menu and the header it hangs from.
+ */
+const CHECK_TARGET = `function (hit) {
+    const CONTROLS = 'a[href], button, input, select, textarea, label, summary, [role="button"], [role="link"], '
+        + '[role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"], [role="option"], [onclick], [tabindex]';
+    const element = node => node instanceof Node ? node : node.element;
+    const parent = node => {
+        const up = node.parentNode;
+        return up instanceof ShadowRoot ? up.host : up;
+    };
+    const inside = (node, ancestor) => {
+        for (let at = node; at != null; at = parent(at)) {
+            if (at === ancestor) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const node = element(this);
+    if (!node.isConnected) {
+        return { relation: 'unknown' };
+    }
+    const target = node.closest(CONTROLS) ?? node;
+    let cover = element(hit);
+    if (inside(cover, target)) {
+        return { relation: 'same' };
+    }
+    if (inside(target, cover)) {
+        return { relation: 'beneath' };
+    }
+    const box = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+    for (;;) {
+        const rect = cover.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+            box.left = Math.min(box.left, rect.left);
+            box.top = Math.min(box.top, rect.top);
+            box.right = Math.max(box.right, rect.right);
+            box.bottom = Math.max(box.bottom, rect.bottom);
+        }
+        const up = parent(cover);
+        if (!(up instanceof Element) || inside(target, up)) {
+            break;
+        }
+        cover = up;
+    }
+    return box.left < box.right ? { relation: 'covered', cover: box } : { relation: 'unknown' };
+}`;
+
+/**
  * Creates input as a person makes it. A client's mouse move becomes a curved path from where the cursor is, ending a
  * few pixels from the client's exact point; a press waits a hover dwell and a release follows a press after a human
  * time; a text inserted at once (`Input.insertText`) is typed key by key; a client's own key presses are held and
@@ -178,10 +266,14 @@ const HITS_POINT = `function (x, y) {
  * its page counts from its first input. A client's script call that does what a hand does (`findHandAction`:
  * agent-browser focusing or clearing a text field, scrolling into view or by an amount) is done by the hand instead.
  *
+ * A cursor's way to a client's point can hover something that opens a cover over it (a header's mega menu over the
+ * results below), which a client never sees, as its own input teleports. So the node at a point is read when the
+ * client first aims at it, and again right before the press: when a cover hides it, the cursor moves off the cover,
+ * waits for it to close, and comes back from the other side (`moveOffCover`).
+ *
  * The input sends only plain Input commands, reads the page's layout (`DOM.getContentQuads`,
- * `Page.getLayoutMetrics`) and reads a field in the client's own isolated world: nothing a page script could tell from
- * a person's hand. Anything else, touch and drag events
- * included, goes as the client sent it.
+ * `Page.getLayoutMetrics`, `DOM.getNodeForLocation`) and reads nodes in an isolated world: nothing a page script
+ * could tell from a person's hand. Anything else, touch and drag events included, goes as the client sent it.
  */
 export function createHumanInput(options: CreateHumanInputOptions = {}): HumanInput {
     const clock = options.clock ?? { now: () => Date.now(), setTimeout: (callback, ms) => setTimeout(callback, ms) };
@@ -287,6 +379,7 @@ export function createHumanInput(options: CreateHumanInputOptions = {}): HumanIn
         switch (type) {
             case 'mouseMoved': {
                 await lookAtPage(call);
+                await rememberTarget(call, point);
                 const path = await planMove(call, point);
                 const end = await sendPath(call, path, command.params);
                 page.lastMouseAt = clock.now();
@@ -294,8 +387,10 @@ export function createHumanInput(options: CreateHumanInputOptions = {}): HumanIn
             }
             case 'mousePressed': {
                 await lookAtPage(call);
-                const at = await reach(call, point);
+                await rememberTarget(call, point);
+                let at = await reach(call, point);
                 await waitUntil(page.lastMouseAt + randomBetween(random, 40, 160));
+                at = await moveOffCover(call, point, at);
                 page.pressedAt = clock.now();
                 page.lastMouseAt = page.pressedAt;
                 return { ...command, params: { ...command.params, ...at } };
@@ -325,11 +420,7 @@ export function createHumanInput(options: CreateHumanInputOptions = {}): HumanIn
     async function reach(call: PageCommand, point: Point) {
         const { page } = call;
         const { aimedAt, cursor } = page;
-        if (
-            cursor != null &&
-            aimedAt != null &&
-            Math.hypot(point.x - aimedAt.x, point.y - aimedAt.y) <= SAME_POINT_PX
-        ) {
+        if (cursor != null && aimedAt != null && isSamePoint(point, aimedAt)) {
             return cursor;
         }
         const path = await planMove(call, point);
@@ -341,6 +432,160 @@ export function createHumanInput(options: CreateHumanInputOptions = {}): HumanIn
         });
         page.lastMouseAt = clock.now();
         return end;
+    }
+
+    /** Reads the node at a point the client aims at for the first time, which a press there should hit. */
+    async function rememberTarget(call: PageCommand, point: Point) {
+        const { page } = call;
+        if (page.aimedAt != null && isSamePoint(point, page.aimedAt)) {
+            return;
+        }
+        page.target = await readHit(call, point);
+    }
+
+    /**
+     * Makes sure a press at the client's point hits the node it aimed at. When a cover hides it (a menu the cursor's
+     * way hovered open), the cursor moves off the cover, out of the box it spans or else out of the view
+     * (`findEscape`), waits up to 1.5 s for it to close, and comes back to the point from there, so not across what opened it; three
+     * times at most, then the press goes as it is and the client's own check tells it.
+     * @returns Where the cursor stands, to press at.
+     */
+    async function moveOffCover(call: PageCommand, point: Point, at: Point): Promise<Point> {
+        const { page } = call;
+        const { target } = page;
+        if (target == null) {
+            return at;
+        }
+        let cursor = at;
+        for (let attempt = 0; ; attempt++) {
+            const check = await checkTarget(call, target, point);
+            if (check.relation !== 'covered') {
+                return cursor;
+            }
+            if (attempt === MAX_COVER_ATTEMPTS) {
+                logger.debug('The target stays covered', { attempts: attempt });
+                return cursor;
+            }
+            logger.debug('A cover hides the target, moving off it', { attempt });
+            const viewport = await readViewport(call);
+            await moveCursor(call, findEscape({ cover: check.cover, target: point, viewport, attempt }));
+            await waitForUncovered(call, target, point);
+            cursor = await reach(call, point);
+            await sleep(randomBetween(random, 40, 160));
+        }
+    }
+
+    /** Waits up to 1.5 s for nothing to cover the target any more. */
+    async function waitForUncovered(call: PageCommand, target: number, point: Point) {
+        const until = clock.now() + COVER_CLOSE_MS;
+        while (clock.now() < until) {
+            await sleep(COVER_CHECK_INTERVAL_MS);
+            if ((await checkTarget(call, target, point)).relation !== 'covered') {
+                return;
+            }
+        }
+    }
+
+    /**
+     * Where the cursor goes off a cover: below the box it spans, else beside it, else out of the view by its nearer
+     * side at the target's height, a later attempt taking the next of these; never above, where the cursor came from.
+     * Out of the view the page sees the pointer leave the document (`mouseout` with no element to go to), as when a
+     * hand leaves the window, and the way back in comes from the side, under whatever bar opened the cover.
+     */
+    function findEscape({ cover, target, viewport, attempt }: EscapeParams): Point {
+        const margin = randomBetween(random, 30, 70);
+        const ways: Point[] = [];
+        if (cover.bottom + margin <= viewport.height - VIEWPORT_EDGE_PX) {
+            ways.push({ x: target.x + randomBetween(random, -40, 40), y: cover.bottom + margin });
+        }
+        if (cover.right + margin <= viewport.width - VIEWPORT_EDGE_PX) {
+            ways.push({ x: cover.right + margin, y: target.y });
+        }
+        if (cover.left - margin >= VIEWPORT_EDGE_PX) {
+            ways.push({ x: cover.left - margin, y: target.y });
+        }
+        // Past a vertical scrollbar, which the view's width leaves out.
+        const out = randomBetween(random, 20, 40);
+        const outside = { x: target.x < viewport.width / 2 ? -out : viewport.width + out, y: target.y };
+        const way = ways[attempt] ?? outside;
+        return { x: Math.round(way.x), y: Math.round(way.y) };
+    }
+
+    /**
+     * How the node now at a client's point relates to the node it aimed at. The same node needs no more than the hit
+     * test; another is told apart in the proxy's isolated world (`CHECK_TARGET`).
+     */
+    async function checkTarget(call: PageCommand, target: number, point: Point): Promise<TargetCheck> {
+        const hit = await readHit(call, point);
+        if (hit == null) {
+            return { relation: 'unknown' };
+        }
+        if (hit === target) {
+            return { relation: 'same' };
+        }
+        const objects: string[] = [];
+        try {
+            for (const backendNodeId of [target, hit]) {
+                const reply = await sendCommand(call, 'DOM.resolveNode', { backendNodeId });
+                const object = isPlainObject(reply) ? reply['object'] : undefined;
+                const objectId = isPlainObject(object) ? object['objectId'] : undefined;
+                if (typeof objectId !== 'string') {
+                    return { relation: 'unknown' };
+                }
+                objects.push(objectId);
+            }
+            const [targetObject, hitObject] = objects;
+            const reply = await sendCommand(call, 'Runtime.callFunctionOn', {
+                objectId: targetObject,
+                functionDeclaration: CHECK_TARGET,
+                arguments: [{ objectId: hitObject }],
+                returnByValue: true,
+            });
+            return readTargetCheck(reply);
+        } catch (error) {
+            // The target is gone, or lives in another frame than the node now at its point.
+            logger.debug('The target could not be checked', { error });
+            return { relation: 'unknown' };
+        } finally {
+            for (const objectId of objects) {
+                await sendCommand(call, 'Runtime.releaseObject', { objectId });
+            }
+        }
+    }
+
+    /**
+     * The node at a point of the viewport, as a press there would hit it: the browser's hit test, which neither runs
+     * page code nor changes what is hovered. It takes the point in the document, so the scroll is added.
+     */
+    async function readHit(call: PageCommand, point: Point) {
+        try {
+            const metrics = await sendCommand(call, 'Page.getLayoutMetrics', {});
+            const viewport = isPlainObject(metrics) ? metrics['cssVisualViewport'] : undefined;
+            const pageX = isPlainObject(viewport) && typeof viewport['pageX'] === 'number' ? viewport['pageX'] : 0;
+            const pageY = isPlainObject(viewport) && typeof viewport['pageY'] === 'number' ? viewport['pageY'] : 0;
+            const reply = await sendCommand(call, 'DOM.getNodeForLocation', {
+                x: Math.round(point.x + pageX),
+                y: Math.round(point.y + pageY),
+            });
+            const backendNodeId = isPlainObject(reply) ? reply['backendNodeId'] : undefined;
+            return typeof backendNodeId === 'number' ? backendNodeId : undefined;
+        } catch (error) {
+            // Nothing at the point, as off the page's content.
+            logger.debug('Nothing could be hit at a point', { error });
+            return undefined;
+        }
+    }
+
+    /** Moves the cursor along a path to `to` exactly, a point it is not aimed at for a client. */
+    async function moveCursor(call: PageCommand, to: Point) {
+        const { page } = call;
+        const params = readMoveParams(call.command.params);
+        const from = await findCursor(call);
+        const end = await sendPath(call, planMousePath({ from, to, random }), params);
+        await sendCommand(call, 'Input.dispatchMouseEvent', { ...params, type: 'mouseMoved', ...end });
+        page.cursor = end;
+        page.aimedAt = undefined;
+        page.lastMouseAt = clock.now();
     }
 
     /** A path from the cursor to a point a few pixels from `point`, which the cursor then stands at, aimed at `point`. */
@@ -691,7 +936,6 @@ export function createHumanInput(options: CreateHumanInputOptions = {}): HumanIn
             return;
         }
         const viewport = await readViewport(call);
-        const params = readMoveParams(call.command.params);
         while (until - clock.now() >= MIN_IDLE_MOVE_MS) {
             const from = await findCursor(call);
             const angle = randomBetween(random, 0, 2 * Math.PI);
@@ -700,10 +944,7 @@ export function createHumanInput(options: CreateHumanInputOptions = {}): HumanIn
                 x: Math.round(Math.min(viewport.width - 1, Math.max(0, from.x + Math.cos(angle) * distance))),
                 y: Math.round(Math.min(viewport.height - 1, Math.max(0, from.y + Math.sin(angle) * distance))),
             };
-            const end = await sendPath(call, planMousePath({ from, to, random }), params);
-            await sendCommand(call, 'Input.dispatchMouseEvent', { ...params, type: 'mouseMoved', ...end });
-            page.cursor = end;
-            page.aimedAt = undefined;
+            await moveCursor(call, to);
             await sleep(Math.min(randomBetween(random, 150, 500), Math.max(0, until - clock.now())));
         }
         page.lastMouseAt = clock.now();
@@ -806,6 +1047,43 @@ function findTimeSinceLastKeyDown(commands: TimedCommand[]) {
         since += delayMs;
     }
     return 0;
+}
+
+/** Whether a client's point is the one it aimed at before. */
+function isSamePoint(point: Point, aimedAt: Point) {
+    return Math.hypot(point.x - aimedAt.x, point.y - aimedAt.y) <= SAME_POINT_PX;
+}
+
+/** What the proxy's isolated world answered of `CHECK_TARGET`. */
+function readTargetCheck(reply: unknown): TargetCheck {
+    const result = isPlainObject(reply) ? reply['result'] : undefined;
+    const value = isPlainObject(result) ? result['value'] : undefined;
+    if (!isPlainObject(value)) {
+        return { relation: 'unknown' };
+    }
+    const { relation, cover } = value;
+    switch (relation) {
+        case 'same':
+        case 'beneath':
+            return { relation };
+        case 'covered': {
+            if (!isPlainObject(cover)) {
+                return { relation: 'unknown' };
+            }
+            const { left, top, right, bottom } = cover;
+            if (
+                typeof left !== 'number' ||
+                typeof top !== 'number' ||
+                typeof right !== 'number' ||
+                typeof bottom !== 'number'
+            ) {
+                return { relation: 'unknown' };
+            }
+            return { relation, cover: { left, top, right, bottom } };
+        }
+        default:
+            return { relation: 'unknown' };
+    }
 }
 
 /** What a client's mouse event says of the hand beyond the point: its modifiers, and the buttons a drag holds. */

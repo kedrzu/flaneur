@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { expect, test } from 'playwright/test';
-import type { Page, TestInfo } from 'playwright/test';
+import type { Page, TestDetailsAnnotation, TestInfo } from 'playwright/test';
 
 import { assert } from '@nzyme/utils/assert.js';
 
@@ -17,12 +17,17 @@ export interface CaptchaCheck {
     /** The CAPTCHA's vendor. */
     vendor: ChallengeVendor;
     url: string;
+    /** What the verdict depends on besides the browser, as a test annotation. */
+    note?: TestDetailsAnnotation;
     /** Loads the page and reads its verdict; a verdict against the browser fails the test as `challenged`. */
     run(page: Page, step: JourneyStep, testInfo: TestInfo): Promise<void>;
 }
 
 /** The reCAPTCHA v3 score a check must reach: sites commonly turn a visitor away below 0.7. */
 const RECAPTCHA_V3_THRESHOLD = 0.7;
+
+/** How long antcpt's score may take: its automatic check a minute after a failed one, and the check's own time. */
+const ANTCPT_SCORE_TIMEOUT_MS = 90_000;
 
 /** How long the v2 checkbox has to tick itself after the click before the check gives up. */
 const CHECKBOX_TIMEOUT_MS = 10_000;
@@ -34,6 +39,17 @@ const TWOCAPTCHA_V3_URL = 'https://2captcha.com/demo/recaptcha-v3';
 const ANTCPT_V3_URL = 'https://antcpt.com/eng/information/demo-form/recaptcha-3-test-score.html';
 /** Google's reCAPTCHA v2 demo. */
 export const RECAPTCHA_V2_URL = 'https://www.google.com/recaptcha/api2/demo';
+
+/**
+ * Why the v2 checkbox's verdict is read with the connection in mind: on 2026-11-23 the demo showed the image challenge
+ * to a person in their own Chrome on the eval's home IP too, so a `challenged` here then measured the IP, not flaneur.
+ * Both projects annotate the check with it.
+ */
+export const RECAPTCHA_V2_IP_NOTE: TestDetailsAnnotation = {
+    type: 'ip-dependent',
+    description:
+        "The checkbox's verdict follows the IP's reputation: a person's own Chrome on the eval's IP got the image challenge too (2026-11-23).",
+};
 const NOWSECURE_URL = 'https://nowsecure.nl/';
 
 /** 2captcha's reCAPTCHA v3 demo: "Check" verifies a fresh token on its server and shows the response, score included. */
@@ -71,7 +87,9 @@ const antcptV3: CaptchaCheck = {
         });
         await step('read the score', async () => {
             const score = page.locator('#score');
-            await expect(score).toContainText(/\d\.\d/);
+            // The demo's own server fails a check now and then ("Sorry, an error happened!") and checks again a minute
+            // later by itself; a person waits for that rather than refreshing, which the page says lowers the score.
+            await expect(score).toContainText(/\d\.\d/, { timeout: ANTCPT_SCORE_TIMEOUT_MS });
             const match = /(\d+(?:\.\d+)?)/.exec(await score.innerText());
             assert(match?.[1], 'antcpt showed no score');
             checkScore({ score: Number(match[1]), site: 'antcpt', step: 'read the score', testInfo });
@@ -87,6 +105,7 @@ const recaptchaV2: CaptchaCheck = {
     name: 'Google reCAPTCHA v2 checkbox',
     vendor: 'reCAPTCHA',
     url: RECAPTCHA_V2_URL,
+    note: RECAPTCHA_V2_IP_NOTE,
     run: async (page, step, testInfo) => {
         await step('open the demo', async () => {
             await page.goto(RECAPTCHA_V2_URL);

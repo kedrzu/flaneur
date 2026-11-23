@@ -1,7 +1,7 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
+import { clickFollowingTab } from '../utils/clickFollowingTab.js';
 import { typeText } from '../utils/typeText.js';
 
 const URL = 'https://www.zillow.com/';
@@ -39,8 +39,10 @@ export const zillow = defineJourney({
             await expect(page).toHaveURL(/\/homes\//);
         });
         await step('open a home', async () => {
-            await clickResult(page.locator('a[href*="/homedetails/"]').first());
-            await expect(page).toHaveURL(/\/homedetails\/.+_zpid/);
+            // A card links its home three times; the address is the one a keyboard reaches. Zillow opens the home in a
+            // new tab by script (2026-11-23), or in the same tab.
+            const home = await clickFollowingTab(page.getByTestId('property-card-address-link').first(), step);
+            await expect(home).toHaveURL(/\/homedetails\/.+_zpid/);
         });
     },
 });

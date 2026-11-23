@@ -1,8 +1,8 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
+import { openNextPage } from '../utils/openNextPage.js';
 import { openProducts } from '../utils/openProducts.js';
 import { readPage } from '../utils/readPage.js';
 import { submitSearch } from '../utils/submitSearch.js';
@@ -38,8 +38,7 @@ export const walmartLong = defineJourney({
             await expect(page).toHaveURL(/[?&]sort=best_seller/);
         });
         await step('open page 2', async () => {
-            await page.getByRole('button', { name: 'Next Page' }).click();
-            await expect(page).toHaveURL(/[?&]page=2/);
+            await openNextPage(page.getByRole('button', { name: 'Next Page' }), /[?&]page=2/);
         });
         await step('open a product', async () => {
             await products.openFirst();
@@ -64,7 +63,10 @@ export const walmartLong = defineJourney({
             await expect(page).toHaveURL(/[?&]page=2/);
         });
         await step('add to cart', async () => {
-            await clickResult(page.getByRole('button', { name: /^Add to cart - / }).first());
+            await page
+                .getByRole('button', { name: /^Add to cart - / })
+                .first()
+                .click();
             await expect(page.getByRole('button', { name: /Cart contains [1-9]/ })).toBeVisible();
         });
         await step('open the cart', async () => {

@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -29,7 +28,7 @@ export const sephora = defineJourney({
         });
         await step('open a product', async () => {
             // The header's menus, inert until opened, link products too.
-            await clickResult(page.getByRole('main').locator('a[href*="/p/"]').first());
+            await page.getByRole('main').locator('a[href*="/p/"]').first().click();
             await expect(page).toHaveURL(/\/p\/.+\.html/);
         });
         await step('add to cart', async () => {

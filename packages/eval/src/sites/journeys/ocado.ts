@@ -2,7 +2,6 @@ import { expect } from 'playwright/test';
 import type { Page } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -30,7 +29,7 @@ export const ocado = defineJourney({
             await expect(addOne(page)).toBeVisible();
         });
         await step('add to trolley', async () => {
-            await clickResult(addOne(page));
+            await addOne(page).click();
         });
         await step('open the trolley', async () => {
             // The trolley opens as a quick view over the page; its full page is the checkout, which a journey never enters.

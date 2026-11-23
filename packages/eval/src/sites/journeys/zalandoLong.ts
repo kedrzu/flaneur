@@ -1,7 +1,9 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
+import { chooseZalandoSize } from '../utils/chooseZalandoSize.js';
 import { emptyCart } from '../utils/emptyCart.js';
+import { openNextPage } from '../utils/openNextPage.js';
 import { openProducts } from '../utils/openProducts.js';
 import { readPage } from '../utils/readPage.js';
 import { submitSearch } from '../utils/submitSearch.js';
@@ -52,8 +54,7 @@ export const zalandoLong = defineJourney({
             await expect(page).toHaveURL(/[?&]order=price/);
         });
         await step('open page 2', async () => {
-            await page.getByRole('link', { name: 'następna strona' }).click();
-            await expect(page).toHaveURL(/[?&]p=2/);
+            await openNextPage(page.getByRole('link', { name: 'następna strona' }), /[?&]p=2/);
         });
         await step('open a product', async () => {
             await products.openFirst();
@@ -76,15 +77,7 @@ export const zalandoLong = defineJourney({
         await step(
             'choose a size',
             async () => {
-                // A one-size product shows its size as text; another asks for one first.
-                await page.getByRole('button', { name: /Wybierz rozmiar/ }).click();
-                // A size out of stock offers a reminder instead.
-                await page
-                    .getByRole('listitem')
-                    .filter({ has: page.getByRole('checkbox') })
-                    .filter({ hasNotText: /przypomnienie/i })
-                    .first()
-                    .click();
+                await chooseZalandoSize(page);
             },
             { optional: true },
         );

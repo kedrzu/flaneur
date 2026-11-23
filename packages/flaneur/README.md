@@ -10,9 +10,9 @@ a proxy in front of it that keeps the client's code out of what page scripts can
 Chromium brand: every page and worker names itself Google Chrome, as the installed Chrome would. Why the API looks as
 it does: [`docs/decisions/package-api.md`](../../docs/decisions/package-api.md).
 
-Tested on 41 real sites behind Cloudflare, Akamai, HUMAN, DataDome, Kasada, AWS WAF, Imperva and Google, each errand
-(search, product, guest cart) run twice: driven by stock Playwright or by agent-browser, no attempt was challenged,
-while a headless Chromium was challenged on the sites that tell bots apart.
+Tested on 41 real sites behind Cloudflare, Akamai, HUMAN, DataDome, Kasada, AWS WAF, Imperva, Amazon and Google, each
+errand (search, product, guest cart) run twice, driven by stock Playwright and, on 14 of them, by agent-browser: every
+one completes without a challenge, while a headless Chromium is challenged on 22 of the errands it runs.
 [What it has been tested against](https://github.com/kedrzu/flaneur#what-it-has-been-tested-against).
 
 Runs on Node.js 22+ and Bun.
@@ -258,6 +258,8 @@ inserts the text with no key events, a scroll into view is a script's, and the f
 load. Behaviour sensors read exactly that, so the proxy performs each client's input as a person would:
 
 - a move follows a curved path at a hand's speed from where the cursor is, and lands a few pixels from the centre;
+- a press lands on what the client aimed at: when the cursor's way hovered a menu or popover open over it, the cursor
+  moves off the cover, waits for it to close and comes back from below or the side;
 - a press waits a short hover, and the release follows it after a human time;
 - an inserted text is typed key by key at a fast typist's pace, Shift held for capitals; a key press is held;
 - a scroll into view is wheeled most of the way, and a long wheel goes in notches;

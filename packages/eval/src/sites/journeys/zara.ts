@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -30,7 +29,7 @@ export const zara = defineJourney({
             await expect(page).toHaveURL(/\/pl\/pl\/search\?searchTerm=/);
         });
         await step('open a product', async () => {
-            await clickResult(page.locator('a.product-grid-product__link').first());
+            await page.locator('a.product-grid-product__link').first().click();
             await expect(page).toHaveURL(/-p\d+\.html/);
         });
         await step('add to cart', async () => {

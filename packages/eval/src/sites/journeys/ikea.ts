@@ -1,7 +1,6 @@
 import { expect } from 'playwright/test';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -28,7 +27,7 @@ export const ikea = defineJourney({
             await expect(page).toHaveURL(/\/pl\/pl\/search\/\?q=/);
         });
         await step('open a product', async () => {
-            await clickResult(page.locator('a[href*="/pl/pl/p/"]').first());
+            await page.locator('a[href*="/pl/pl/p/"]').first().click();
             await expect(page).toHaveURL(/\/pl\/pl\/p\//);
         });
         await step(

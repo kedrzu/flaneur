@@ -85,8 +85,39 @@ const RECORDER_SCRIPT = `
     }
     addEventListener('wheel', () => { records.wheels++; write(); });`;
 
+/**
+ * Records into `#log` each press, with whether the menu was open under it, and each time the menu opened. The `css`
+ * menu is the department bar's child, open while the bar or the menu is hovered; the `js` menu is the page's own, opened
+ * by the bar's `mouseenter` and closed 200 ms after the pointer left both.
+ */
+const MENU_SCRIPT = `
+    const log = [];
+    const menu = document.getElementById('menu');
+    const bar = document.getElementById('bar');
+    const isOpen = () => getComputedStyle(menu).display !== 'none';
+    const write = () => { document.getElementById('log').textContent = JSON.stringify(log); };
+    let open = false;
+    addEventListener('mousemove', () => {
+        if (isOpen() !== open) {
+            open = isOpen();
+            if (open) { log.push('open'); write(); }
+        }
+    }, true);
+    addEventListener('mousedown', event => { log.push('press ' + event.target.closest('[id]').id + (isOpen() ? ' over open menu' : '')); write(); }, true);
+    if (document.body.className === 'js') {
+        let timer;
+        const show = () => { clearTimeout(timer); menu.hidden = false; };
+        const hide = () => { timer = setTimeout(() => { menu.hidden = true; }, 200); };
+        bar.addEventListener('mouseenter', show);
+        menu.addEventListener('mouseenter', show);
+        bar.addEventListener('mouseleave', hide);
+        menu.addEventListener('mouseleave', hide);
+    }`;
+
 let site: { server: Server; url: string };
 let served: StealthBrowserServer;
+/** What the input logged, to tell when it found a cover over a target. */
+const inputLogs = createTestLogger('HumanInput');
 let userDataDir: string;
 
 beforeAll(async () => {
@@ -96,7 +127,7 @@ beforeAll(async () => {
         executablePath: chromium.executablePath(),
         userDataDir,
         args: BROWSER_ARGS,
-        input: createHumanInput(),
+        input: createHumanInput({ logger: inputLogs.logger }),
         logger: createTestLogger('StealthBrowser').logger,
     });
 }, TIMEOUT_MS);
@@ -163,6 +194,71 @@ test(
     TIMEOUT_MS,
 );
 
+/** How the `/menu` page's department bar opens its menu over the result, if at all (`serveMenu`). */
+type MenuVariant = 'css' | 'js' | 'none';
+
+for (const variant of ['css', 'js'] as const) {
+    test(
+        `a click from the header's search box lands on a result under a mega menu its way opened (${variant} hover)`,
+        async () => {
+            const { log, covers, menuVisible } = await clickResultUnderMenu(variant);
+
+            const presses = log.filter(entry => entry.startsWith('press'));
+            expect(presses).toEqual(['press search', 'press result']);
+            // The way from the search box to the result opened the menu, which closed before the press.
+            expect(log.slice(log.indexOf('press search'))).toContain('open');
+            expect(covers).toBeGreaterThan(0);
+            expect(menuVisible).toBe(false);
+        },
+        TIMEOUT_MS,
+    );
+}
+
+test(
+    'a result whose own hover changes what lies under the cursor is clicked at once, as nothing covers it',
+    async () => {
+        const { log, covers } = await clickResultUnderMenu('none');
+
+        expect(log.filter(entry => entry.startsWith('press'))).toEqual(['press search', 'press result']);
+        expect(covers).toBe(0);
+    },
+    TIMEOUT_MS,
+);
+
+/**
+ * Clicks the `/menu` page's search box, fills it and clicks the result, through Playwright: what the page logged, how
+ * many times the input found a cover over the target, and whether the menu shows at the end.
+ */
+async function clickResultUnderMenu(variant: MenuVariant) {
+    const coversBefore = countCovers();
+    const browser = await chromium.connectOverCDP(served.endpoint);
+    try {
+        const context = browser.contexts()[0];
+        assert(context, 'connectOverCDP gives the default context');
+        context.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS);
+        const page = await context.newPage();
+        await page.setViewportSize({ width: 800, height: 600 });
+        await page.goto(`${site.url}menu?variant=${variant}`);
+
+        await page.locator('#search').click();
+        await page.locator('#search').fill('hammer');
+        await page.locator('#result').click({ timeout: 15_000 });
+
+        const parsed: unknown = JSON.parse((await page.locator('#log').textContent()) ?? '[]');
+        assert(Array.isArray(parsed), 'The page logs a list');
+        const log = parsed.filter(entry => typeof entry === 'string');
+        const menuVisible = await page.locator('#menu').isVisible();
+        await page.close();
+        return { log, covers: countCovers() - coversBefore, menuVisible };
+    } finally {
+        await browser.close();
+    }
+}
+
+function countCovers() {
+    return inputLogs.logs.filter(entry => entry.message === 'A cover hides the target, moving off it').length;
+}
+
 async function readRecords(page: Page): Promise<Records> {
     const text = await page.locator('#records').textContent();
     const parsed: unknown = JSON.parse(text ?? '{}');
@@ -178,9 +274,50 @@ async function readRecords(page: Page): Promise<Records> {
     };
 }
 
-/** Serves the recording page on `127.0.0.1`: four buttons around the viewport, two inputs and a button far below. */
+/**
+ * A header with a search box over a department bar, whose hover opens a mega menu (`MenuVariant`) over a result below;
+ * the result's own hover shows another view of it, as a product card's second image.
+ */
+function serveMenu(url: URL) {
+    const variant = readMenuVariant(url.searchParams.get('variant'));
+    const menu = `<div id="menu" ${variant === 'css' ? '' : 'hidden'} style="position:absolute;left:0;top:${variant === 'js' ? 110 : 60}px;width:100%;height:360px;z-index:1;background:#ccc">Mega menu</div>`;
+    return `<!doctype html><html><body class="${variant}" style="margin:0">
+        <style>.css #menu { display: none } .css #bar:hover #menu { display: block } #menu[hidden] { display: none }</style>
+        <input id="search" style="position:absolute;left:400px;top:10px;width:200px;height:28px">
+        <nav id="bar" style="position:absolute;left:0;top:50px;width:100%;height:60px;z-index:1;background:#eee">
+            Departments ${variant === 'css' ? menu : ''}
+        </nav>
+        ${variant === 'js' || variant === 'none' ? menu : ''}
+        <style>#result span { display: block; height: 100% } #result:hover .still, #result:not(:hover) .hover { display: none }</style>
+        <a id="result" href="#result" style="position:absolute;left:40px;top:150px;width:300px;height:40px">
+            <span class="still">Hammer</span><span class="hover">Hammer, another view</span>
+        </a>
+        <pre id="log" style="position:absolute;left:0;top:900px"></pre>
+        <script>${MENU_SCRIPT}</script>
+    </body></html>`;
+}
+
+function readMenuVariant(value: string | null): MenuVariant {
+    switch (value) {
+        case 'js':
+        case 'none':
+            return value;
+        default:
+            return 'css';
+    }
+}
+
+/**
+ * Serves the recording page on `127.0.0.1`: four buttons around the viewport, two inputs and a button far below; and at
+ * `/menu` the mega menu page (`serveMenu`).
+ */
 async function servePage() {
-    const server = createServer((_request, response) => {
+    const server = createServer((request, response) => {
+        const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+        if (url.pathname === '/menu') {
+            response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(serveMenu(url));
+            return;
+        }
         const buttons = BUTTONS.map(
             (id, index) =>
                 `<button id="${id}" style="position:absolute;left:${100 + 250 * index}px;top:${100 + 120 * (index % 2)}px;width:120px;height:40px">${id}</button>`,

@@ -3,7 +3,6 @@ import { expect } from 'playwright/test';
 import { assert } from '@nzyme/utils/assert.js';
 
 import { defineJourney } from '../defineJourney.js';
-import { clickResult } from '../utils/clickResult.js';
 import { emptyCart } from '../utils/emptyCart.js';
 import { submitSearch } from '../utils/submitSearch.js';
 
@@ -35,7 +34,7 @@ export const costco = defineJourney({
             const name = await card.getByRole('heading', { level: 3 }).textContent();
             assert(name, 'A product card has no name');
             product = name.trim();
-            await clickResult(card.getByRole('button', { name: 'Add to Cart' }));
+            await card.getByRole('button', { name: 'Add to Cart' }).click();
             const added = page.getByRole('group').filter({ has: page.getByRole('heading', { name: product }) });
             await expect(added.getByText(/[1-9]\d* in Cart/)).toBeVisible();
         });
