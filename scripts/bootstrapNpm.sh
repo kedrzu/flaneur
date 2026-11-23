@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The one-off start of `flaneur` on npm, run by the maintainer from their own machine: after it, every
-# release is a pushed tag (.github/workflows/release.yml), published through npm trusted publishing.
+# release is a run of .github/workflows/release.yml, published through npm trusted publishing.
 #
 # npm configures a trusted publisher only for a package that exists, so the first version cannot come
 # from the workflow. This script, asking before each step and skipping a step that is already done:
@@ -8,8 +8,7 @@
 # 1. checks, packs and publishes the version in packages/flaneur/package.json from `origin/main`,
 #    with the same checks as the workflow (typecheck, all tests, scripts/packRelease.sh);
 # 2. makes `kedrzu/flaneur` / `release.yml` its trusted publisher (`npm trust github`);
-# 3. tags the commit `v<version>` and pushes the tag. The release workflow then runs on it and skips
-#    the publish, since the version is on npm already.
+# 3. tags the commit `v<version>` and pushes the tag, the base the next release's notes start from.
 #
 # Run from the repo root, after `npm login` with an account that has two-factor authentication:
 # `bash scripts/bootstrapNpm.sh`. npm asks for the second factor in the terminal or the browser on the
@@ -74,5 +73,5 @@ if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
 elif confirm "Tag $(git rev-parse --short HEAD) as $tag and push the tag?"; then
     git tag "$tag"
     git push origin "$tag"
-    echo "🏷  $tag: the release workflow runs on it and skips the publish"
+    echo "🏷  $tag is on origin"
 fi

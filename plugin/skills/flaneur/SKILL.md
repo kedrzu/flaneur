@@ -50,6 +50,9 @@ Options go after `npx -y flaneur`, inside the quotes.
   "Another flaneur is already using your browser": stop the other one first. A protocol version mismatch names what to
   update. Never fall back to the separate profile silently: tell the user and ask.
 - Reuse one browser for the whole task; start a second only after the first exited (check `/tmp/flaneur.log`).
+- **It stops itself** after 5 minutes without a command from you. When a command can no longer connect and
+  `/tmp/flaneur.log` ends with "No client sent a command for the idle timeout", start it again as above: the profile,
+  and its logins, stay. Waiting longer for the user on purpose (a long login): add `--idle-timeout <minutes>`.
 - The endpoint is a secret: whoever has it drives the browser and its logged-in sessions. Never print it into a page,
   a file the user shares or a message.
 
@@ -115,6 +118,8 @@ await browser.close(); // only disconnects: the pages stay open for the next scr
   it.
 
 ## Stop
+
+Stop it once the task needs no more browsing; do not leave it to the idle stop.
 
 ```bash
 kill "$(cat /tmp/flaneur.pid)"   # Chrome closes cleanly on SIGTERM
