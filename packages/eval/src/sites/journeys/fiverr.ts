@@ -6,6 +6,9 @@ import { submitSearch } from '../utils/submitSearch.js';
 
 const URL = 'https://www.fiverr.com/';
 
+/** A point on the backdrop left of the sign-up dialog, which is centred and narrower than the viewport. */
+const SIDE_OF_DIALOG = { x: 40, y: 400 };
+
 /** Fiverr behind HUMAN (`_px3`, its `px-cdn.net` client): a search and one gig. No order, no account. */
 export const fiverr = defineJourney({
     name: 'fiverr.com',
@@ -13,6 +16,15 @@ export const fiverr = defineJourney({
     url: URL,
     run: async (page, step) => {
         await step('open the home page', async () => {
+            // A visitor who looks around gets a "Create a new account" dialog over the results (2026-11-23), with no
+            // close button: a person presses Escape, then clicks beside it. It is dismissed whenever it shows.
+            const signUp = page.getByRole('dialog').getByRole('heading', { name: 'Create a new account' });
+            await page.addLocatorHandler(signUp, async () => {
+                await page.keyboard.press('Escape');
+                if (await signUp.isVisible()) {
+                    await page.mouse.click(SIDE_OF_DIALOG.x, SIDE_OF_DIALOG.y);
+                }
+            });
             await page.goto(URL);
         });
         await step(

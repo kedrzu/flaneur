@@ -6,7 +6,7 @@ import { assert } from '@nzyme/utils/assert.js';
 export interface ProductLinks {
     /** Clicks the listing's first product link and remembers where it leads. */
     openFirst(): Promise<void>;
-    /** Clicks the first product link leading elsewhere than the first: a card often links its product twice. */
+    /** Clicks the first product link leading to another path than the first: a card often links its product twice. */
     openAnother(): Promise<void>;
 }
 
@@ -27,20 +27,35 @@ const IMAGE_AT = 0.25;
  * @util
  */
 export function openProducts(page: Page, selector: string, options: OpenProductsOptions = {}): ProductLinks {
-    let firstHref: string | null = null;
+    let firstPath: string | null = null;
 
     return { openFirst, openAnother };
 
     async function openFirst() {
         const link = page.locator(selector).first();
-        firstHref = await link.getAttribute('href');
+        firstPath = readPath(await link.getAttribute('href'));
         await clickLink(link);
     }
 
     async function openAnother() {
-        assert(firstHref != null, 'openAnother() before openFirst()');
-        // `:is()` keeps the exclusion on every part of a selector list, not only its last.
-        await clickLink(page.locator(`:is(${selector}):not([href=${JSON.stringify(firstHref)}])`).first());
+        assert(firstPath != null, 'openAnother() before openFirst()');
+        const links = page.locator(selector);
+        await links.first().waitFor();
+        // By path: a card's links to one product may differ in their query or be relative and absolute.
+        const count = await links.count();
+        for (let index = 0; index < count; index++) {
+            const path = readPath(await links.nth(index).getAttribute('href'));
+            if (path != null && path !== firstPath) {
+                await clickLink(links.nth(index));
+                return;
+            }
+        }
+        throw new Error(`No product link leads elsewhere than ${firstPath}`);
+    }
+
+    /** A link's path, resolved against the listing's URL; `null` for a link with no `href`. */
+    function readPath(href: string | null) {
+        return href == null ? null : new URL(href, page.url()).pathname;
     }
 
     async function clickLink(link: Locator) {

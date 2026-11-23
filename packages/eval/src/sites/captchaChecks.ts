@@ -26,6 +26,9 @@ export interface CaptchaCheck {
 /** The reCAPTCHA v3 score a check must reach: sites commonly turn a visitor away below 0.7. */
 const RECAPTCHA_V3_THRESHOLD = 0.7;
 
+/** How long antcpt's score may take: its automatic check a minute after a failed one, and the check's own time. */
+const ANTCPT_SCORE_TIMEOUT_MS = 90_000;
+
 /** How long the v2 checkbox has to tick itself after the click before the check gives up. */
 const CHECKBOX_TIMEOUT_MS = 10_000;
 
@@ -84,7 +87,9 @@ const antcptV3: CaptchaCheck = {
         });
         await step('read the score', async () => {
             const score = page.locator('#score');
-            await expect(score).toContainText(/\d\.\d/);
+            // The demo's own server fails a check now and then ("Sorry, an error happened!") and checks again a minute
+            // later by itself; a person waits for that rather than refreshing, which the page says lowers the score.
+            await expect(score).toContainText(/\d\.\d/, { timeout: ANTCPT_SCORE_TIMEOUT_MS });
             const match = /(\d+(?:\.\d+)?)/.exec(await score.innerText());
             assert(match?.[1], 'antcpt showed no score');
             checkScore({ score: Number(match[1]), site: 'antcpt', step: 'read the score', testInfo });

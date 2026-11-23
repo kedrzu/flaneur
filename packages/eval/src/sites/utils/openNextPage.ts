@@ -1,7 +1,8 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import { expect } from 'playwright/test';
 import type { Locator } from 'playwright/test';
+
+import { clickToUrl } from './clickToUrl.js';
 
 /** How far one turn of the wheel scrolls toward the paging, in CSS pixels. */
 const WHEEL_STEP_PX = 400;
@@ -15,35 +16,18 @@ const TURN_PAUSE_MS = 400;
 /** How long the paging must hold its place before the click: the listing's lazy rows and ads have loaded. */
 const SETTLED_MS = 1000;
 
-/** How long a click on the paging may take to change the URL before a person clicks again. */
-const CLICK_ANSWER_MS = 10_000;
-
 /**
  * Opens the listing's next page as a person does: the wheel down to the paging, a look until the rows above stop
- * loading and moving it, then the click; when the URL has not changed after a while, a second click. Clicking at once
- * from the top let Playwright aim at a paging that the listing's lazy rows then pushed down: OTTO's click landed on an
- * ad's product, Walmart's on nothing.
+ * loading and moving it, then the click (`clickToUrl`: a second one when the URL has not changed). Clicked at once
+ * from the top of a listing still loading, OTTO's paging click landed on an advertised product and Walmart's changed
+ * nothing.
  * @param control The paging's link or button to the next page.
  * @param url What the next page's URL matches.
  * @util
  */
 export async function openNextPage(control: Locator, url: RegExp) {
-    const page = control.page();
     await wheelTo(control);
-    const before = page.url();
-    await control.click();
-    const changed = await expect
-        .poll(() => page.url(), { timeout: CLICK_ANSWER_MS })
-        .not.toBe(before)
-        .then(
-            () => true,
-            () => false,
-        );
-    if (!changed) {
-        await wheelTo(control);
-        await control.click();
-    }
-    await expect(page).toHaveURL(url);
+    await clickToUrl(control, url);
 }
 
 /** Turns the wheel until `control` is in the middle part of the viewport and has held its place for `SETTLED_MS`. */

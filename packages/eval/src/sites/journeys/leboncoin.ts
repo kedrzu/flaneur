@@ -20,6 +20,11 @@ export const leboncoin = defineJourney({
             // "Accepter" and reads "Accepter & Fermer".
             const accept = page.getByRole('button', { name: 'Accepter', exact: true });
             await page.addLocatorHandler(accept, () => accept.click());
+            // A "Promotion" dialog (cheaper delivery, 2026-11-23) hides the page the same way; a person closes it.
+            const closePromotion = page
+                .getByRole('dialog', { name: 'Promotion' })
+                .getByRole('button', { name: 'Fermer' });
+            await page.addLocatorHandler(closePromotion, () => closePromotion.click());
             await page.goto(URL);
         });
         await step('search', async () => {

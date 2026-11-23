@@ -18,6 +18,11 @@ export interface RunShopProbeParams {
 const SCORES_TIMEOUT_MS = 120_000;
 const SCORES_POLL_MS = 2000;
 const READ_RESULTS = "JSON.parse(document.getElementById('eval-results').textContent)";
+const HAS_RESULTS = "document.getElementById('eval-results') != null";
+
+/** How long the page the last action loads may take to show its results again. */
+const RESULTS_SHOWN_TIMEOUT_MS = 30_000;
+const RESULTS_SHOWN_POLL_MS = 500;
 
 /**
  * The reCAPTCHA probe (stealth-browsing D11): makes the shop visit on the driver, then waits until every action has a score or an
@@ -27,6 +32,18 @@ export async function runShopProbe(params: RunShopProbeParams): Promise<ShopVisi
     const { driver, pauseMs, label, shopUrl } = params;
     const startedAt = new Date();
     await runScenario({ driver, steps: createShopScenario(startedAt, shopUrl), pauseMs, label });
+    // The last action is a link to another page, whose script adds the results only once it runs.
+    await waitUntil(
+        () =>
+            driver.evaluate(HAS_RESULTS).then(
+                shown => shown === true,
+                () => false,
+            ),
+        {
+            intervalMs: RESULTS_SHOWN_POLL_MS,
+            timeoutMs: RESULTS_SHOWN_TIMEOUT_MS,
+        },
+    );
 
     let visit = await readVisit();
     // A tab of its own starts a fresh visit (the shop keeps it in sessionStorage); an older one would mix in another run.
