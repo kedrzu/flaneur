@@ -33,7 +33,18 @@ const MAX_STEP_MS = 16;
 /** How far a point may stray from the curve: a hand's tremor, and the sensor's rounding. */
 const NOISE_PX = 0.5;
 /** How far the curve bends away from the straight line, as a share of the distance. */
+const MIN_BEND = 0.03;
 const MAX_BEND = 0.2;
+/**
+ * How often the curve bends to the side that takes it across rows first (down from a header, up from a footer) rather
+ * than along the row it starts in, where a page's bars hold what hovering opens.
+ */
+const ACROSS_ROW_CHANCE = 0.8;
+/**
+ * The time warp that brings the velocity peak forward, `t^0.8`: a hand reaches its top speed at about 40 % of a move
+ * and spends the rest homing in, so it leaves where it started sooner than it settles where it ends.
+ */
+const EARLY_PEAK = 0.8;
 /** How often a longer move overshoots the target and comes back. */
 const OVERSHOOT_CHANCE = 0.15;
 const MIN_OVERSHOOT_DISTANCE_PX = 80;
@@ -41,8 +52,9 @@ const MAX_OVERSHOOT_PX = 25;
 
 /**
  * The points a person's cursor passes from `from` to `to`, ending exactly at `to`: a cubic Bézier curve with a random
- * bend, travelled with a minimum-jerk velocity profile (slow start, fast middle, slow end) over a time Fitts' law gives
- * the distance, reported every 8 to 16 ms with half a pixel of noise. One move in about seven of more than 80 px
+ * bend, usually to the side that leaves the start's row first, travelled with a minimum-jerk velocity profile whose peak
+ * comes at about 40 % of the time (a quick start, a slow end) over a time Fitts' law gives the distance, reported
+ * every 8 to 16 ms with half a pixel of noise. One move in about seven of more than 80 px
  * overshoots the target by a few pixels and comes back. Intermediate points are whole pixels, as a mouse reports
  * them, and a point equal to the one before is not reported.
  */
@@ -85,8 +97,10 @@ function planCurve(from: Point, to: Point, duration: number, random: () => numbe
     const dy = to.y - from.y;
     const distance = Math.hypot(dx, dy);
     // The bend's side and size; both control points lean the same way, so the curve is an arc, not an S.
-    const bend = distance * randomBetween(random, -MAX_BEND, MAX_BEND);
     const normal = distance === 0 ? { x: 0, y: 0 } : { x: -dy / distance, y: dx / distance };
+    const across = Math.sign(normal.y * dy);
+    const side = across !== 0 && random() < ACROSS_ROW_CHANCE ? across : random() < 0.5 ? -1 : 1;
+    const bend = side * distance * randomBetween(random, MIN_BEND, MAX_BEND);
     const control1 = controlPoint(
         from,
         dx,
@@ -114,7 +128,7 @@ function planCurve(from: Point, to: Point, duration: number, random: () => numbe
         if (elapsed >= duration) {
             break;
         }
-        const progress = minimumJerk(elapsed / duration);
+        const progress = minimumJerk((elapsed / duration) ** EARLY_PEAK);
         const point = {
             x: Math.round(
                 bezier(from.x, control1.x, control2.x, to.x, progress) + randomBetween(random, -NOISE_PX, NOISE_PX),

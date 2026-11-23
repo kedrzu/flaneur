@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { createTestLogger } from '@nzyme/logging/createTestLogger.js';
 import { assert } from '@nzyme/utils/assert.js';
 
 import type { CdpRequest } from './CdpTypes.js';
@@ -44,6 +45,23 @@ test('a mouse path curves from start to end within Fitts time, reporting every 8
     }
     expect(overshoots).toBeGreaterThan(0);
     expect(overshoots).toBeLessThan(SEEDS.length / 2);
+});
+
+test('a path from a header down to the page leaves the header within the first quarter of its time', () => {
+    let early = 0;
+    for (const seed of SEEDS) {
+        const path = planMousePath({ from: { x: 1000, y: 40 }, to: { x: 300, y: 300 }, random: createRandom(seed) });
+        const duration = sumDelays(path);
+        let elapsed = 0;
+        for (const point of path) {
+            elapsed += point.delayMs;
+            if (point.y >= 100) {
+                break;
+            }
+        }
+        early += elapsed <= duration / 4 ? 1 : 0;
+    }
+    expect(early).toBeGreaterThanOrEqual(SEEDS.length * 0.75);
 });
 
 test('a short move is quicker than a long one, and a move of a pixel or two is a single report', () => {
@@ -135,7 +153,7 @@ test("a client's click becomes a path, a hover dwell and a human press, at a poi
         sent.length = 0;
 
         const moved = await run.perform(click('mouseMoved', 640.5, 360.5), run.send);
-        const path = sent.splice(0);
+        const path = sent.splice(0).filter(command => command.method === 'Input.dispatchMouseEvent');
         const movedAt = clock.now();
         const pressed = await run.perform(click('mousePressed', 640.5, 360.5), run.send);
         const pressedAt = clock.now();
@@ -168,6 +186,97 @@ test('a press with no move before it first moves the cursor there', async () => 
 
     expect(sent.length).toBeGreaterThan(10);
     expect(sent.at(-1)?.params).toMatchObject({ type: 'mouseMoved', x: pressed.params['x'], y: pressed.params['y'] });
+});
+
+test('a press whose target a cover hides moves off the cover below it, waits for it to close, and comes back from below', async () => {
+    for (const seed of SEEDS.slice(0, 10)) {
+        // A header menu opens on a move over the header (y < 100) and covers y < 400 until the cursor goes below it.
+        const menu = { open: false, opened: 0 };
+        const { run, sent, clock } = prepare({
+            random: createRandom(seed),
+            answer(method, params) {
+                if (method === 'Input.dispatchMouseEvent' && typeof params['y'] === 'number') {
+                    if (params['y'] < 100 && !menu.open) {
+                        menu.open = true;
+                        menu.opened++;
+                    } else if (params['y'] > 400) {
+                        menu.open = false;
+                    }
+                }
+                return answerMenu(menu.open, method);
+            },
+        });
+        await run.perform(click('mouseMoved', 640, 40), run.send);
+        clock.advance(5000);
+        menu.open = false;
+        menu.opened = 0;
+        sent.length = 0;
+
+        await run.perform(click('mouseMoved', 640, 300), run.send);
+        const pressed = await run.perform(click('mousePressed', 640, 300), run.send);
+
+        expect(menu.opened).toBe(1);
+        expect(menu.open).toBe(false);
+        expect(Math.hypot(Number(pressed.params['x']) - 640, Number(pressed.params['y']) - 300)).toBeLessThanOrEqual(3);
+        const moves = sent.filter(command => command.method === 'Input.dispatchMouseEvent');
+        const below = moves.findIndex(command => Number(command.params['y']) > 400);
+        expect(below).toBeGreaterThan(0);
+        // Back from below: the way back never reaches the header.
+        expect(moves.slice(below).every(command => Number(command.params['y']) >= 100)).toBe(true);
+    }
+});
+
+test('a press whose target nothing covers goes at once, after one hit test', async () => {
+    const { run, sent, clock } = prepare({ answer: (method: string) => answerMenu(false, method) });
+    await run.perform(click('mouseMoved', 640, 40), run.send);
+    clock.advance(5000);
+    await run.perform(click('mouseMoved', 640, 300), run.send);
+    sent.length = 0;
+    const movedAt = clock.now();
+
+    await run.perform(click('mousePressed', 640, 300), run.send);
+
+    expect(sent.map(command => command.method)).toEqual(['Page.getLayoutMetrics', 'DOM.getNodeForLocation']);
+    expect(clock.now() - movedAt).toBeLessThanOrEqual(160);
+});
+
+test('a cover that does not close is moved off three times, then the press goes', async () => {
+    // The target is read when it is first aimed at; from then on the menu covers it.
+    let hitTests = 0;
+    const { run, sent, clock } = prepare({
+        answer(method) {
+            hitTests += method === 'DOM.getNodeForLocation' ? 1 : 0;
+            return answerMenu(hitTests > 1, method);
+        },
+    });
+    await run.perform(click('mouseMoved', 640, 40), run.send);
+    clock.advance(5000);
+    hitTests = 0;
+    await run.perform(click('mouseMoved', 640, 300), run.send);
+    sent.length = 0;
+    const movedAt = clock.now();
+
+    const pressed = await run.perform(click('mousePressed', 640, 300), run.send);
+
+    // Each time off the cover, below it and then out of the view by a side, and back within 3 px of the target.
+    let returns = 0;
+    let away = false;
+    for (const { method, params } of sent) {
+        const x = Number(params['x']);
+        const y = Number(params['y']);
+        if (method !== 'Input.dispatchMouseEvent') {
+            continue;
+        }
+        if (y > 400 || x < 0 || x > 1280) {
+            away = true;
+        } else if (away && Math.hypot(x - 640, y - 300) <= 3) {
+            away = false;
+            returns++;
+        }
+    }
+    expect(returns).toBe(3);
+    expect(Math.hypot(Number(pressed.params['x']) - 640, Number(pressed.params['y']) - 300)).toBeLessThanOrEqual(3);
+    expect(clock.now() - movedAt).toBeLessThan(3 * (1500 + 2 * (700 + 160 + 90 + 16) + 160) + 160);
 });
 
 test('the first input on a fresh document waits 1.5 to 3.5 s from its commit with idle moves, and the next does not', async () => {
@@ -326,6 +435,8 @@ test('what is not input goes unchanged, with nothing sent and no wait', async ()
 interface PrepareOptions extends Pick<CreateHumanInputOptions, 'random'> {
     /** What `DOM.getContentQuads` answers. */
     quads?: number[][];
+    /** Answers a command before the defaults do; `undefined` leaves it to them. */
+    answer?: (method: string, params: Record<string, unknown>) => unknown;
 }
 
 /**
@@ -334,11 +445,16 @@ interface PrepareOptions extends Pick<CreateHumanInputOptions, 'random'> {
  */
 function prepare(options: PrepareOptions) {
     const clock = createInstantClock();
-    const input = createHumanInput({ clock, random: options.random ?? createRandom(1) });
+    const { logger } = createTestLogger('HumanInput');
+    const input = createHumanInput({ clock, random: options.random ?? createRandom(1), logger });
     const run = input[ATTACH_HUMAN_INPUT]({ getSessionTarget: () => 'page-1' });
     const sent: SentInput[] = [];
     function send(method: string, params: Record<string, unknown>) {
         sent.push({ at: clock.now(), method, params });
+        const answered = options.answer?.(method, params);
+        if (answered !== undefined) {
+            return Promise.resolve(answered);
+        }
         switch (method) {
             case 'Page.getLayoutMetrics':
                 return Promise.resolve({ cssLayoutViewport: VIEWPORT });
@@ -349,6 +465,26 @@ function prepare(options: PrepareOptions) {
         }
     }
     return { run: { ...run, send }, sent, clock };
+}
+
+/** A page whose target, node 1, a menu, node 2, covers while `covered`, its stack spanning the viewport's top 400 px. */
+function answerMenu(covered: boolean, method: string) {
+    switch (method) {
+        case 'DOM.getNodeForLocation':
+            return { backendNodeId: covered ? 2 : 1 };
+        case 'DOM.resolveNode':
+            return { object: { objectId: 'node' } };
+        case 'Runtime.callFunctionOn':
+            return {
+                result: {
+                    value: covered
+                        ? { relation: 'covered', cover: { left: 0, top: 0, right: 1280, bottom: 400 } }
+                        : { relation: 'same' },
+                },
+            };
+        default:
+            return undefined;
+    }
 }
 
 /** A clock whose waits pass at once, moving its time by them. */

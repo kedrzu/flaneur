@@ -255,6 +255,8 @@ inserts the text with no key events, a scroll into view is a script's, and the f
 load. Behaviour sensors read exactly that, so the proxy performs each client's input as a person would:
 
 - a move follows a curved path at a hand's speed from where the cursor is, and lands a few pixels from the centre;
+- a press lands on what the client aimed at: when the cursor's way hovered a menu or popover open over it, the cursor
+  moves off the cover, waits for it to close and comes back from below or the side;
 - a press waits a short hover, and the release follows it after a human time;
 - an inserted text is typed key by key at a fast typist's pace, Shift held for capitals; a key press is held;
 - a scroll into view is wheeled most of the way, and a long wheel goes in notches;

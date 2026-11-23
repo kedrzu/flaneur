@@ -159,8 +159,38 @@ end) and cleared by the platform's select-all chord and Backspace; `scrollIntoVi
 into view, then runs as sent. A call the hand would not just do with a click (focusing a button or a select) runs as
 sent. It holds while the input layer is on, as the rest of the layer does.
 
+**Covers the cursor's way opens (2026-11-23).** A client never hovers: its click teleports. The input layer's path
+does hover, and from a header's search box to a result below it crosses the header, whose items open a mega menu, a
+popover or a scrim over the results; Playwright's click then reports `… intercepts pointer events` until it times out
+(lowes.com, nike.com, chewy.com, vinted.pl on 2026-11-22; per-journey workarounds in the eval still failed on nike.com).
+So the layer keeps the press on its target, for every client:
+
+- When a client first aims at a point, the node there is read with `DOM.getNodeForLocation`: the browser's hit test,
+  which runs no page code and changes no hover state (checked: no `mouseover`, `:hover` unchanged). Right before the
+  press it is read again; the same node costs nothing more (about 0.2 ms for the two reads).
+- A different node is compared in the proxy's isolated world against the control around the aimed node (a link, a
+  button, a label…): inside it is the same target, as when a product card's hover swaps its image; one the target lies
+  in, or a target the page replaced, is left to the client. Anything else is a cover.
+- The cursor moves off the cover, below the box its stack spans (the menu and the header it hangs from), else beside
+  it, else out of the view by the nearer side, which the page sees as the pointer leaving the document (`mouseout` with
+  no element to go to), as a hand leaving the window does. It waits up to 1.5 s for the cover to close and comes back
+  from there, so not across the header; three times at most, then the press goes and the client's own check reports.
+- A path bends, four times in five, to the side that crosses rows first (down from a header), and its velocity peaks
+  at about 40 % of its time: it leaves a header in about 130 ms instead of 200.
+
+> **Checked 2026-11-23:** a local page with a header search box over a department bar whose hover opens a mega menu
+> (CSS `:hover`, and a script's `mouseenter`) over a result: without this, Playwright's click retries on `<div
+> id="menu"> intercepts pointer events` until its timeout, and agent-browser clicks the menu; with it both land on the
+> result and the menu is closed (`createHumanInput.playwright.test.ts`, `agentBrowser.test.ts`). Live, one run each:
+> nike.com, lowes.com, chewy.com and vinted.pl passed with the eval's workarounds removed; nike.com met a cover and
+> moved off it once.
+
 **Rejected.**
 
+- A hover workaround per journey or per client (the eval's `clickResult`: down to the bottom of the view, rest, a click
+  on a known backdrop) — every client and every site would need its own, and nike.com still failed with it.
+- Clicking a cover's backdrop to close it — a click the client did not ask for, which could dismiss a dialog the
+  client means to see.
 - Waiting for the eval before building the input layer — the measurement-first rule of 2026-11-15; the owner
   dropped it for input on 2026-11-21, as every client's input is a known machine pattern
   ([history](history/DECISIONS.md#d4)).
