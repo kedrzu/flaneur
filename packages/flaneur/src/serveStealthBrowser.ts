@@ -9,6 +9,8 @@ import type { StealthBrowserServer } from './serveBrowser.js';
 export interface ServeStealthBrowserOptions extends LaunchStealthBrowserOptions<undefined> {
     /** The local port to listen on; any free one by default. */
     port?: number;
+    /** How long the server may go without a client command before its `idle` resolves; never by default. */
+    idleTimeoutMs?: number;
 }
 
 /**
@@ -18,5 +20,5 @@ export interface ServeStealthBrowserOptions extends LaunchStealthBrowserOptions<
 export async function serveStealthBrowser(options: ServeStealthBrowserOptions): Promise<StealthBrowserServer> {
     const logger = options.logger ?? createLogger('Flaneur');
     const browser = await launchStealthBrowser<undefined>({ ...options, logger });
-    return serveBrowser(browser, { port: options.port, logger });
+    return serveBrowser(browser, { port: options.port, idleTimeoutMs: options.idleTimeoutMs, logger });
 }
